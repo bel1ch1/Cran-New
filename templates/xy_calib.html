@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система детекции - Калибровка XY</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            border: 1px solid #404040;
+            margin: 0 auto;
+        }
+
+        header {
+            background: linear-gradient(to right, #3a3a3a, #4a4a4a);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #555;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #f0f0f0;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        .main-content {
+            display: flex;
+            padding: 20px;
+            gap: 20px;
+            min-height: 600px;
+        }
+
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            color: #aaa;
+            text-decoration: none;
+            margin-bottom: 20px;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+
+        .back-button:hover {
+            color: #e0e0e0;
+        }
+
+        .video-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-container {
+            flex: 1;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-placeholder {
+            color: #666;
+            font-size: 18px;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .video-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .control-btn {
+            flex: 1;
+            background: linear-gradient(to bottom, #3d3d3d, #2d2d2d);
+            color: #e0e0e0;
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .control-btn:hover {
+            background: linear-gradient(to bottom, #4a4a4a, #3a3a3a);
+            border-color: #777;
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .control-btn.active {
+            background: linear-gradient(to bottom, #4a4a4a, #3a3a3a);
+            border-color: #777;
+        }
+
+        .info-panel {
+            flex: 0 0 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .instruction-box {
+            background: #333;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #444;
+        }
+
+        .instruction-box h3 {
+            color: #ccc;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .instruction-text {
+            color: #aaa;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 80px;
+        }
+
+        .data-box {
+            background: #333;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .data-box h3 {
+            color: #ccc;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        .data-item {
+            margin-bottom: 15px;
+        }
+
+        .data-label {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 5px;
+        }
+
+        .data-value {
+            font-size: 16px;
+            color: #e0e0e0;
+            background: #2a2a2a;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+        }
+
+        .calibration-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .calib-btn {
+            flex: 1;
+            background: linear-gradient(to bottom, #3d3d3d, #2d2d2d);
+            color: #e0e0e0;
+            border: 1px solid #555;
+            padding: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .calib-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .calib-btn.primary {
+            background: linear-gradient(to bottom, #4a6b3a, #3a5b2a);
+        }
+
+        .calib-btn.primary:hover:not(:disabled) {
+            background: linear-gradient(to bottom, #5a7b4a, #4a6b3a);
+        }
+
+        .calib-btn.secondary {
+            background: linear-gradient(to bottom, #5a3a3a, #4a2a2a);
+        }
+
+        .calib-btn.secondary:hover:not(:disabled) {
+            background: linear-gradient(to bottom, #6a4a4a, #5a3a3a);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            margin-top: auto;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            border: 1px solid #444;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #888;
+            margin-right: 10px;
+            transition: all 0.3s;
+        }
+
+        .status-dot.connected {
+            background: #4CAF50;
+            box-shadow: 0 0 10px #4CAF50;
+        }
+
+        .status-dot.error {
+            background: #f44336;
+            box-shadow: 0 0 10px #f44336;
+        }
+
+        .status-dot.waiting {
+            background: #FF9800;
+            box-shadow: 0 0 10px #FF9800;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        footer {
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            border-top: 1px solid #404040;
+            background: #252525;
+        }
+
+        @media (max-width: 900px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .info-panel {
+                flex: 0 0 auto;
+            }
+        }
+
+        /* Стили для центрирующей сетки на видео */
+        .crosshair {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .crosshair-line {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .horizontal {
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            transform: translateY(-50%);
+        }
+
+        .vertical {
+            left: 50%;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            transform: translateX(-50%);
+        }
+
+        .center-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #frame {
+            max-width: 100%;
+            max-height: 100%;
+            display: none;
+        }
+
+        .stage-indicator {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #333;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .stage-1 {
+            background: #5a3a3a;
+            color: #ff8a8a;
+        }
+
+        .stage-2 {
+            background: #3a5a3a;
+            color: #8aff8a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>КАЛИБРОВКА XY 1920x1080</h1>
+            <div class="subtitle">Калибровка плоскости XY с определением маркеров</div>
+        </header>
+
+        <div class="main-content">
+            <div class="video-panel">
+                <a href="/xy-settings" class="back-button">← Назад к настройкам XY</a>
+
+                <div class="video-container" id="videoContainer">
+                    <div class="crosshair">
+                        <div class="crosshair-line horizontal"></div>
+                        <div class="crosshair-line vertical"></div>
+                        <div class="center-circle"></div>
+                    </div>
+                    <div class="video-placeholder" id="videoPlaceholder">
+                        Ожидание видеопотока...
+                    </div>
+                    <img id="frame" alt="Video Stream">
+                </div>
+
+                <div class="video-controls">
+                    <button class="control-btn" id="startStream">Запустить поток</button>
+                    <button class="control-btn" id="stopStream" disabled>Остановить поток</button>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="instruction-box">
+                    <h3>
+                        Статус калибровки
+                        <span class="stage-indicator stage-1" id="stageIndicator">Стадия 1</span>
+                    </h3>
+                    <div class="instruction-text" id="instructionText">
+                        Запустите видеопоток для начала калибровки. Система определит маркеры автоматически.
+                    </div>
+                </div>
+
+                <div class="data-box">
+                    <h3>Данные системы</h3>
+
+                    <div class="data-item">
+                        <div class="data-label">Размер маркера (пиксели)</div>
+                        <div class="data-value" id="markerSizeData">-- px</div>
+                    </div>
+
+                    <div class="data-item">
+                        <div class="data-label">Текущее положение (мост X / тележка Y)</div>
+                        <div class="data-value" id="markerPositionData">--</div>
+                    </div>
+
+                    <div class="data-item">
+                        <div class="data-label">Новые откалиброванные маркеры (м)</div>
+                        <div class="data-value" id="calibratedMarkersData">--</div>
+                    </div>
+
+                    <div class="data-item">
+                        <div class="data-label">ROI предпросмотр (x,y,w,h)</div>
+                        <div class="data-value" id="roiPreviewData">--</div>
+                    </div>
+
+                    <div class="data-item">
+                        <div class="data-label">Системные сообщения</div>
+                        <div class="data-value" id="systemMessage">Ожидание данных...</div>
+                    </div>
+                </div>
+
+                <div class="calibration-controls">
+                    <button class="calib-btn primary" id="startCalibration" disabled>Начать калибровку</button>
+                    <button class="calib-btn secondary" id="finishCalibration" disabled>Завершить калибровку</button>
+                </div>
+
+                <div class="status-indicator">
+                    <div class="status-dot" id="systemStatusDot"></div>
+                    <div class="status-text" id="systemStatusText">Система готова к работе</div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            Промышленная система управления | Версия 3.0.0
+        </footer>
+    </div>
+
+    <script>
+        // Элементы DOM
+        const videoContainer = document.getElementById('videoContainer');
+        const videoPlaceholder = document.getElementById('videoPlaceholder');
+        const frame = document.getElementById('frame');
+        const startStreamBtn = document.getElementById('startStream');
+        const stopStreamBtn = document.getElementById('stopStream');
+        const startCalibrationBtn = document.getElementById('startCalibration');
+        const finishCalibrationBtn = document.getElementById('finishCalibration');
+
+        // Элементы для отображения данных
+        const markerSizeData = document.getElementById('markerSizeData');
+        const markerPositionData = document.getElementById('markerPositionData');
+        const calibratedMarkersData = document.getElementById('calibratedMarkersData');
+        const roiPreviewData = document.getElementById('roiPreviewData');
+        const systemMessage = document.getElementById('systemMessage');
+        const instructionText = document.getElementById('instructionText');
+        const stageIndicator = document.getElementById('stageIndicator');
+        const systemStatusDot = document.getElementById('systemStatusDot');
+        const systemStatusText = document.getElementById('systemStatusText');
+
+        let ws = null;
+        let streamActive = false;
+        let calibrationActive = false;
+
+        // Функция обновления статуса системы
+        function updateSystemStatus(status, isError = false, isConnected = false, isWaiting = false) {
+            systemStatusDot.className = 'status-dot';
+
+            if (isError) {
+                systemStatusDot.classList.add('error');
+            } else if (isConnected) {
+                systemStatusDot.classList.add('connected');
+            } else if (isWaiting) {
+                systemStatusDot.classList.add('waiting');
+            }
+
+            systemStatusText.textContent = status;
+        }
+
+        // Функция обновления интерфейса в зависимости от состояния
+        function updateUIState() {
+            if (!streamActive) {
+                instructionText.textContent = "Запустите видеопоток для начала калибровки. Система определит маркеры автоматически.";
+                stageIndicator.textContent = "Стадия 1";
+                stageIndicator.className = "stage-indicator stage-1";
+                startCalibrationBtn.disabled = true;
+                finishCalibrationBtn.disabled = true;
+            } else if (streamActive && !calibrationActive) {
+                instructionText.textContent = "Поток активен. Нажмите 'Начать калибровку' для записи карты маркеров.";
+                stageIndicator.textContent = "Стадия 2";
+                stageIndicator.className = "stage-indicator stage-2";
+                startCalibrationBtn.disabled = false;
+                finishCalibrationBtn.disabled = true;
+            } else if (streamActive && calibrationActive) {
+                instructionText.textContent = "Калибровка выполняется. Пожалуйста, дождитесь завершения процесса.";
+                stageIndicator.textContent = "Калибровка";
+                stageIndicator.className = "stage-indicator stage-2";
+                startCalibrationBtn.disabled = true;
+                finishCalibrationBtn.disabled = false;
+            }
+        }
+
+        // Функция запуска видеопотока через WebSocket
+        startStreamBtn.addEventListener('click', function() {
+            startVideoStream();
+        });
+
+        // Функция остановки видеопотока
+        stopStreamBtn.addEventListener('click', function() {
+            stopVideoStream();
+        });
+
+        // Функция начала калибровки
+        startCalibrationBtn.addEventListener('click', function() {
+            if (!streamActive) {
+                alert('Сначала запустите видеопоток');
+                return;
+            }
+
+            calibrationActive = true;
+            updateUIState();
+
+            // Отправка команды на начало калибровки
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "start_calibration",
+                    command: "start"
+                }));
+            }
+
+            updateSystemStatus('Выполняется калибровка', false, true);
+        });
+
+        // Функция завершения калибровки
+        finishCalibrationBtn.addEventListener('click', function() {
+            calibrationActive = false;
+
+            // Остановка видеопотока
+            stopVideoStream();
+
+            // Переход на следующую страницу
+            window.location.href = '/calibration-complete'; // Замените на нужный URL
+        });
+
+        // Функция запуска видеопотока
+        function startVideoStream() {
+            try {
+                // Создание WebSocket соединения
+                const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+                const wsUrl = `${protocol}://${window.location.host}/ws/calibration/bridge`;
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = "blob";
+
+                ws.onopen = function() {
+                    console.log('WebSocket соединение установлено');
+                    streamActive = true;
+
+                    videoPlaceholder.style.display = 'none';
+                    frame.style.display = 'block';
+
+                    startStreamBtn.disabled = true;
+                    stopStreamBtn.disabled = false;
+
+                    updateSystemStatus('Поиск маркеров...', false, true, true);
+                    updateUIState();
+                };
+
+                ws.onmessage = function(event) {
+                    if (event.data instanceof Blob) {
+                        const blobUrl = URL.createObjectURL(event.data);
+                        frame.src = blobUrl;
+                        return;
+                    }
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === "xy_calibration_state") {
+                            updateCalibrationData(data.data);
+                        }
+                    } catch (e) {
+                        console.error('Ошибка парсинга JSON:', e);
+                    }
+                };
+
+                ws.onclose = function() {
+                    console.log('WebSocket соединение закрыто');
+                    if (streamActive) {
+                        updateSystemStatus('Соединение потеряно', true);
+                        stopVideoStream();
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket ошибка:', error);
+                    updateSystemStatus('Ошибка соединения', true);
+                    stopVideoStream();
+                };
+
+            } catch (error) {
+                console.error('Ошибка при создании WebSocket:', error);
+                updateSystemStatus('Ошибка подключения', true);
+            }
+        }
+
+        // В будущем переделать, чтобы это было на бэке, а сюда только флаг
+        // Функция обновления данных калибровки
+        function updateCalibrationData(state) {
+            const messages = [];
+
+            if (state.xy_calib_marker_size_px !== undefined) {
+                markerSizeData.textContent = `${state.xy_calib_marker_size_px} px`;
+            }
+
+            if (state.crane_x_m !== undefined || state.trolley_y_m !== undefined) {
+                const craneX = state.crane_x_m !== undefined ? state.crane_x_m : "--";
+                const trolleyY = state.trolley_y_m !== undefined ? state.trolley_y_m : "--";
+                markerPositionData.textContent = `X=${craneX} м; Y=${trolleyY} м`;
+            } else if (state.xy_calib_new_marker_xpose !== undefined) {
+                markerPositionData.textContent = `${state.xy_calib_new_marker_xpose}`;
+            }
+
+            if (state.calib_message !== undefined) {
+                messages.push(state.calib_message);
+            }
+
+            if (state.visible_marker_ids !== undefined && state.known_marker_count !== undefined) {
+                messages.push(`В кадре: [${state.visible_marker_ids.join(', ')}], откалибровано: ${state.known_marker_count}`);
+            }
+
+            if (state.calibration_quality !== undefined) {
+                const qualityPct = Math.round(state.calibration_quality * 100);
+                messages.push(`Качество: ${qualityPct}%`);
+            }
+
+            if (state.reference_distance_m !== undefined && state.reference_distance_m !== null) {
+                messages.push(`Опорная дистанция: ${state.reference_distance_m} м`);
+            }
+
+            if (state.last_calibrated_markers_m !== undefined && Object.keys(state.last_calibrated_markers_m).length > 0) {
+                const markersText = Object.entries(state.last_calibrated_markers_m)
+                    .map(([id, x]) => `id=${id} -> ${Number(x).toFixed(3)} м`)
+                    .join(", ");
+                calibratedMarkersData.textContent = markersText;
+            } else {
+                calibratedMarkersData.textContent = "--";
+            }
+
+            if (state.roi_preview && state.roi_preview.padded) {
+                const padded = state.roi_preview.padded;
+                roiPreviewData.textContent = `${padded.x}, ${padded.y}, ${padded.w}, ${padded.h}`;
+            } else {
+                roiPreviewData.textContent = "--";
+            }
+
+            systemMessage.textContent = messages.join(" | ") || "Ожидание данных...";
+            updateUIState();
+        }
+
+        // Функция остановки видеопотока
+        function stopVideoStream() {
+            streamActive = false;
+            calibrationActive = false;
+
+            // Закрытие WebSocket соединения
+            if (ws) {
+                ws.close();
+            }
+
+            videoPlaceholder.style.display = 'block';
+            frame.style.display = 'none';
+            frame.src = '';
+
+            startStreamBtn.disabled = false;
+            stopStreamBtn.disabled = true;
+
+            updateSystemStatus('Поток остановлен');
+            updateUIState();
+        }
+
+        // Автоматическое закрытие соединения при закрытии страницы
+        window.addEventListener('beforeunload', function() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
+
+        // Инициализация страницы
+        updateSystemStatus('Система готова к работе');
+        updateUIState();
+    </script>
+</body>
+</html>

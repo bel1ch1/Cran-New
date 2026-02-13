@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Промышленный контроллер - Главная</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            border: 1px solid #404040;
+        }
+
+        header {
+            background: linear-gradient(to right, #3a3a3a, #4a4a4a);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #555;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #f0f0f0;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        .main-content {
+            padding: 40px 20px;
+        }
+
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            color: #aaa;
+            text-decoration: none;
+            margin-bottom: 20px;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+
+        .back-button:hover {
+            color: #e0e0e0;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .nav-button, .action-button {
+            display: block;
+            background: linear-gradient(to bottom, #3d3d3d, #2d2d2d);
+            color: #e0e0e0;
+            text-decoration: none;
+            padding: 25px 15px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            border: 1px solid #555;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .nav-button:before, .action-button:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: 0.5s;
+        }
+
+        .nav-button:hover, .action-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+            border-color: #777;
+        }
+
+        .nav-button:hover:before, .action-button:hover:before {
+            left: 100%;
+        }
+
+        .nav-button:active, .action-button:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+        }
+
+        .nav-button i, .action-button i {
+            display: block;
+            font-size: 36px;
+            margin-bottom: 10px;
+            color: #aaa;
+        }
+
+        .action-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .action-button:disabled:hover {
+            transform: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border-color: #555;
+        }
+
+        .status-message {
+            text-align: center;
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            min-height: 40px;
+            transition: all 0.3s ease;
+        }
+
+        .status-success {
+            background-color: rgba(46, 125, 50, 0.2);
+            color: #81c784;
+            border: 1px solid #2e7d32;
+        }
+
+        .status-error {
+            background-color: rgba(211, 47, 47, 0.2);
+            color: #ef9a9a;
+            border: 1px solid #d32f2f;
+        }
+
+        .status-loading {
+            color: #90caf9;
+        }
+
+        footer {
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            border-top: 1px solid #404040;
+            background: #252525;
+        }
+
+        @media (max-width: 600px) {
+            .button-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Управление</h1>
+            <div class="subtitle">Модуль управления штатными системами</div>
+        </header>
+
+        <div class="main-content">
+            <a href="/main" class="back-button">← Назад на главную</a>
+
+            <div class="button-grid">
+                <button class="action-button" onclick="executeCommand('start_z_regular')">
+                    <i>▶</i>
+                    Запуск Z
+                </button>
+
+                <button class="action-button" onclick="executeCommand('stop_z_regular')">
+                    <i>❚❚</i>
+                    Остановка Z
+                </button>
+
+                <button class="action-button" onclick="executeCommand('start_xy_regular')">
+                    <i>▶</i>
+                    Запуск XY
+                </button>
+
+                <button class="action-button" onclick="executeCommand('stop_xy_regular')">
+                    <i>❚❚</i>
+                    Остановка XY
+                </button>
+
+                <a href="http://192.168.0.18:8888/sources/1/dashboards/4?refresh=5s&lower=now%28%29%20-%201h" class="nav-button">
+                    <i>📊</i>
+                    Статистика
+                </a>
+
+                <button class="action-button" onclick="executeCommand('restart')">
+                    <i>↻</i>
+                    Перезагрузка системы
+                </button>
+            </div>
+
+            <div id="statusMessage" class="status-message"></div>
+        </div>
+
+        <footer>
+            Промышленная система управления | Версия 3.0.0
+        </footer>
+    </div>
+
+    <script>
+        async function executeCommand(command) {
+            const buttons = document.querySelectorAll('.action-button');
+            const statusElement = document.getElementById('statusMessage');
+
+            // Отключаем все кнопки на время выполнения
+            buttons.forEach(btn => btn.disabled = true);
+
+            // Показываем статус загрузки
+            statusElement.textContent = 'Выполнение команды...';
+            statusElement.className = 'status-message status-loading';
+
+            try {
+                const response = await fetch(`/${command}`, {
+                    method: 'POST', // Используем POST для изменения состояния
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusElement.textContent = data.message || 'Команда выполнена успешно';
+                    statusElement.className = 'status-message status-success';
+                } else {
+                    throw new Error(data.error || 'Ошибка выполнения команды');
+                }
+            } catch (error) {
+                statusElement.textContent = `Ошибка: ${error.message}`;
+                statusElement.className = 'status-message status-error';
+                console.error('Ошибка:', error);
+            } finally {
+                // Включаем кнопки обратно
+                buttons.forEach(btn => btn.disabled = false);
+
+                // Автоматически скрываем сообщение через 5 секунд
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                    statusElement.className = 'status-message';
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>

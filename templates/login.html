@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Авторизация - CRAN Calibration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 480px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid #404040;
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(to right, #3a3a3a, #4a4a4a);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #555;
+        }
+
+        h1 {
+            font-size: 26px;
+            color: #f0f0f0;
+        }
+
+        .subtitle {
+            margin-top: 6px;
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .main-content {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 14px;
+            background: #1f1f1f;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 15px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #777;
+            box-shadow: 0 0 0 2px rgba(120, 120, 120, 0.2);
+        }
+
+        .btn {
+            width: 100%;
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 12px;
+            background: linear-gradient(to bottom, #4a4a4a, #3a3a3a);
+            color: #e0e0e0;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.25s ease;
+        }
+
+        .btn:hover {
+            border-color: #777;
+            transform: translateY(-2px);
+        }
+
+        .error {
+            margin-bottom: 14px;
+            background: rgba(211, 47, 47, 0.2);
+            border: 1px solid #d32f2f;
+            color: #ef9a9a;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        footer {
+            padding: 12px;
+            text-align: center;
+            color: #777;
+            font-size: 12px;
+            border-top: 1px solid #404040;
+            background: #252525;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Система калибровки CRAN</h1>
+            <div class="subtitle">Авторизация оператора</div>
+        </header>
+        <div class="main-content">
+            {% if error %}
+            <div class="error">{{ error }}</div>
+            {% endif %}
+            <form method="post" action="/login">
+                <div class="form-group">
+                    <label for="username">Логин</label>
+                    <input id="username" type="text" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Пароль</label>
+                    <input id="password" type="password" name="password" required>
+                </div>
+                <button type="submit" class="btn">Войти</button>
+            </form>
+        </div>
+        <footer>Промышленная система управления | Версия 3.0.0</footer>
+    </div>
+</body>
+</html>
+

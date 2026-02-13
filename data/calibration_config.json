@@ -1,0 +1,98 @@
+{
+  "meta": {
+    "app": "CRAN Calibration Console",
+    "version": "1.0.0",
+    "updated_at": "2026-02-13T15:23:50.196017+00:00"
+  },
+  "hook_calibration": {
+    "marker_size_mm": 35,
+    "marker_id": 7,
+    "camera": {
+      "camera_id": 1,
+      "description": "Hook camera"
+    }
+  },
+  "bridge_calibration": {
+    "marker_size_mm": 35,
+    "movement_direction": "left_to_right",
+    "camera": {
+      "camera_id": 0,
+      "description": "Bridge/Trolley camera"
+    },
+    "xy_calib_poses": {
+      "aruco_1": {
+        "x_m": 0.0,
+        "y_m": 0.0
+      },
+      "aruco_2": {
+        "x_m": 0.0619,
+        "y_m": 0.0
+      },
+      "aruco_3": {
+        "x_m": 0.1243,
+        "y_m": 0.0
+      },
+      "aruco_4": {
+        "x_m": 0.1883,
+        "y_m": 0.0
+      },
+      "aruco_5": {
+        "x_m": 0.2477,
+        "y_m": 0.0
+      },
+      "aruco_6": {
+        "x_m": 0.3062,
+        "y_m": 0.0
+      },
+      "aruco_8": {
+        "x_m": 0.3696,
+        "y_m": 0.0
+      }
+    },
+    "roi": {
+      "x": 0,
+      "y": 211,
+      "w": 639,
+      "h": 149
+    },
+    "result": {
+      "crane_x_m": 0.155,
+      "trolley_y_m": 0.0,
+      "known_marker_count": 7,
+      "calibration_quality": 0.987
+    },
+    "marker_positions_m": {
+      "1": 0.0,
+      "2": 0.0607,
+      "3": 0.1207,
+      "4": 0.1786,
+      "5": 0.2339,
+      "6": 0.2888,
+      "8": 0.3407
+    },
+    "roi_preview": {
+      "raw": {
+        "x": 161,
+        "y": 243,
+        "w": 472,
+        "h": 72
+      },
+      "padded": {
+        "x": 114,
+        "y": 231,
+        "w": 525,
+        "h": 96
+      },
+      "frame": {
+        "width": 640,
+        "height": 480
+      }
+    }
+  },
+  "statistics": {
+    "dashboard_url": "http://192.168.0.18:8888/sources/1/dashboards/4"
+  },
+  "management": {
+    "last_command": null
+  }
+}

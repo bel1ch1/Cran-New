@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Промышленный контроллер - Главное меню</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 860px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            border: 1px solid #404040;
+        }
+
+        header {
+            background: linear-gradient(to right, #3a3a3a, #4a4a4a);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #555;
+            position: relative;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: #f0f0f0;
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 6px;
+        }
+
+        .logout {
+            position: absolute;
+            right: 16px;
+            top: 16px;
+            color: #ddd;
+            text-decoration: none;
+            font-size: 13px;
+            border: 1px solid #666;
+            padding: 6px 10px;
+            border-radius: 4px;
+        }
+
+        .main-content {
+            padding: 34px 24px;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .nav-button {
+            display: block;
+            background: linear-gradient(to bottom, #3d3d3d, #2d2d2d);
+            color: #e0e0e0;
+            text-decoration: none;
+            padding: 26px 15px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            border: 1px solid #555;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+            border-color: #777;
+        }
+
+        .nav-button i {
+            display: block;
+            font-size: 34px;
+            margin-bottom: 10px;
+            color: #aaa;
+            font-style: normal;
+        }
+
+        footer {
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+            border-top: 1px solid #404040;
+            background: #252525;
+        }
+
+        @media (max-width: 700px) {
+            .button-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/logout" class="logout">Выйти</a>
+            <h1>Система калибровки CRAN</h1>
+            <div class="subtitle">Главное меню оператора{% if user %} | {{ user }}{% endif %}</div>
+        </header>
+
+        <div class="main-content">
+            <div class="button-grid">
+                <a href="/bridge-calibration" class="nav-button">
+                    <i>XY</i>
+                    Калибровка моста
+                </a>
+                <a href="/hook-calibration" class="nav-button">
+                    <i>Z</i>
+                    Калибровка крюка
+                </a>
+                <a href="/statistics" class="nav-button">
+                    <i>📊</i>
+                    Статистика
+                </a>
+                <a href="/management" class="nav-button">
+                    <i>⌨</i>
+                    Управление
+                </a>
+            </div>
+        </div>
+
+        <footer>Промышленная система управления | Версия 3.0.0</footer>
+    </div>
+</body>
+</html>
