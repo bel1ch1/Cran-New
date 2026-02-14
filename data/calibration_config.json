@@ -2,7 +2,7 @@
   "meta": {
     "app": "CRAN Calibration Console",
     "version": "1.0.0",
-    "updated_at": "2026-02-13T15:23:50.196017+00:00"
+    "updated_at": "2026-02-14T10:45:18.476863+00:00"
   },
   "hook_calibration": {
     "marker_size_mm": 35,
@@ -14,39 +14,32 @@
   },
   "bridge_calibration": {
     "marker_size_mm": 35,
-    "movement_direction": "left_to_right",
+    "movement_direction": "unknown",
     "camera": {
       "camera_id": 0,
       "description": "Bridge/Trolley camera"
     },
     "xy_calib_poses": {
       "aruco_1": {
-        "x_m": 0.0,
-        "y_m": 0.0
+        "x_m": 0.0
       },
       "aruco_2": {
-        "x_m": 0.0619,
-        "y_m": 0.0
+        "x_m": 0.0619
       },
       "aruco_3": {
-        "x_m": 0.1243,
-        "y_m": 0.0
+        "x_m": 0.1243
       },
       "aruco_4": {
-        "x_m": 0.1883,
-        "y_m": 0.0
+        "x_m": 0.1883
       },
       "aruco_5": {
-        "x_m": 0.2477,
-        "y_m": 0.0
+        "x_m": 0.2477
       },
       "aruco_6": {
-        "x_m": 0.3062,
-        "y_m": 0.0
+        "x_m": 0.3062
       },
       "aruco_8": {
-        "x_m": 0.3696,
-        "y_m": 0.0
+        "x_m": 0.3696
       }
     },
     "roi": {
@@ -56,32 +49,33 @@
       "h": 149
     },
     "result": {
-      "crane_x_m": 0.155,
+      "crane_x_m": 0.28,
       "trolley_y_m": 0.0,
-      "known_marker_count": 7,
-      "calibration_quality": 0.987
+      "known_marker_count": 8,
+      "calibration_quality": 0.744
     },
     "marker_positions_m": {
       "1": 0.0,
-      "2": 0.0607,
-      "3": 0.1207,
-      "4": 0.1786,
-      "5": 0.2339,
-      "6": 0.2888,
-      "8": 0.3407
+      "2": 0.0709,
+      "3": 0.1371,
+      "4": 0.2057,
+      "5": 0.2736,
+      "6": 0.3338,
+      "7": 0.4665,
+      "8": 0.4706
     },
     "roi_preview": {
       "raw": {
-        "x": 161,
-        "y": 243,
-        "w": 472,
-        "h": 72
+        "x": 31,
+        "y": 234,
+        "w": 544,
+        "h": 91
       },
       "padded": {
-        "x": 114,
-        "y": 231,
-        "w": 525,
-        "h": 96
+        "x": 0,
+        "y": 222,
+        "w": 629,
+        "h": 115
       },
       "frame": {
         "width": 640,

@@ -43,7 +43,7 @@ def get_settings() -> Settings:
         config_file=data_dir / "calibration_config.json",
         use_jetson_cameras=use_jetson_cameras,
         bridge_camera_device=os.getenv("CRAN_BRIDGE_CAMERA_DEVICE", "0"),
-        hook_camera_device=os.getenv("CRAN_HOOK_CAMERA_DEVICE", "0"),
+        hook_camera_device=os.getenv("CRAN_HOOK_CAMERA_DEVICE", "1"),
         bridge_camera_pipeline=os.getenv("CRAN_BRIDGE_CAMERA_PIPELINE", ""),
         hook_camera_pipeline=os.getenv("CRAN_HOOK_CAMERA_PIPELINE", ""),
     )

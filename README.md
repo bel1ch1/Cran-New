@@ -20,10 +20,10 @@ uvicorn main:app --reload
 - `CRAN_AUTH_PASSWORD`
 - `CRAN_SESSION_SECRET`
 - `CRAN_USE_JETSON_CAMERAS` (`true/false`)
-- `CRAN_BRIDGE_CAMERA_DEVICE` (по умолчанию `0`, то есть `cv2.VideoCapture(0)`)
-- `CRAN_HOOK_CAMERA_DEVICE` (по умолчанию `0`, можно поставить `1` для второй камеры)
-- `CRAN_BRIDGE_CAMERA_PIPELINE` (опционально, GStreamer)
-- `CRAN_HOOK_CAMERA_PIPELINE` (опционально, GStreamer)
+- `CRAN_BRIDGE_CAMERA_DEVICE` (по умолчанию `0`, `sensor-id` для моста)
+- `CRAN_HOOK_CAMERA_DEVICE` (по умолчанию `1`, `sensor-id` для крюка)
+- `CRAN_BRIDGE_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
+- `CRAN_HOOK_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
 
 ## Архитектура
 
@@ -47,7 +47,9 @@ uvicorn main:app --reload
 
 Контуры независимы: пользователь может калибровать мост и крюк раздельно, данные по каждому контуру записываются в отдельные секции `calibration_config.json`.
 Для Jetson используются две разные камеры: отдельная для `bridge` и отдельная для `hook`.
-На обычном ПК кадры берутся стандартно через `cv2.VideoCapture(<device>)`.
+По умолчанию инициализация камер выполняется через GStreamer pipeline:
+
+`nvarguscamerasrc sensor-id=<id> ! video/x-raw(memory:NVMM), width=1920, height=1080, framerate=29/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink drop=1`
 
 ## Точки внедрения алгоритмов
 
@@ -61,4 +63,83 @@ uvicorn main:app --reload
 
 - `GET /xy-marker-settings` - получить текущий размер маркера из конфигурации.
 - `POST /xy-marker-settings` - сохранить размер маркера (`marker_size`) в конфиг.
+
+## Standalone программа #1 (Jetson + Modbus)
+
+В корне проекта добавлен скрипт `bridge_pose_modbus.py`. Скрипт:
+
+- читает `data/calibration_config.json` (блок `bridge_calibration`);
+- использует `roi` для ускоренного поиска ArUco-маркеров;
+- использует только маркеры, чьи `id` есть в `marker_positions_m`;
+- вычисляет:
+  - `X` - положение камеры по пути (метры),
+  - `Y` - дистанцию до маркера (метры);
+- учитывает `movement_direction` (`left_to_right` / `right_to_left`);
+- поднимает свой Modbus TCP сервер и публикует данные в holding-регистры.
+
+Запуск:
+
+```bash
+python bridge_pose_modbus.py --use-gstreamer --modbus-host 0.0.0.0 --modbus-port 5020 --modbus-base-register 100
+```
+
+Полезные параметры:
+
+- `--config` путь до calibration JSON;
+- `--camera-id` переопределяет `camera_id` из JSON;
+- `--fps` частота обработки (по умолчанию `8`);
+- `--modbus-unit-id` slave/unit id (по умолчанию `1`).
+
+Проверка чтения (из второго терминала):
+
+```bash
+python modbus_pose_reader_test.py --host 127.0.0.1 --port 5020 --unit-id 1 --base-register 100
+```
+
+Карта регистров (начиная с `--modbus-base-register`):
+
+- `+0..+1`: `X` как `float32` (Big Endian, два 16-bit регистра),
+- `+2..+3`: `Y` как `float32` (Big Endian, два 16-bit регистра),
+- `+4`: `marker_id`,
+- `+5`: флаг валидности (`1` если найден подходящий маркер, иначе `0`).
+
+## Standalone программа #2 (Hook + общий Modbus)
+
+Добавлен скрипт `hook_pose_modbus.py`.
+
+Что делает:
+
+- читает `data/calibration_config.json` (блок `hook_calibration`);
+- берет `marker_id`, `marker_size_mm`, `camera.camera_id`;
+- ищет целевой ArUco-маркер;
+- считает дистанцию до маркера с учетом отклонения от оси камеры;
+- считает отклонения маркера от центра кадра по X/Y в пикселях;
+- пишет данные в тот же общий Modbus TCP сервер.
+
+Важно: используем **один сервер** для обоих контуров.
+
+- `bridge_pose_modbus.py` поднимает общий Modbus сервер;
+- `hook_pose_modbus.py` подключается к нему как клиент и пишет в свой диапазон регистров.
+
+Рекомендуемый запуск:
+
+1) Терминал 1 (общий сервер + bridge):
+
+```bash
+python bridge_pose_modbus.py --use-gstreamer --modbus-host 0.0.0.0 --modbus-port 5020 --modbus-base-register 100
+```
+
+2) Терминал 2 (hook в тот же сервер):
+
+```bash
+python hook_pose_modbus.py --use-gstreamer --modbus-host 127.0.0.1 --modbus-port 5020 --modbus-base-register 200
+```
+
+Карта регистров hook (от `--modbus-base-register`, по умолчанию `200`):
+
+- `+0..+1`: `distance_m` как `float32` (Big Endian),
+- `+2..+3`: `deviation_x_px` как `float32`,
+- `+4..+5`: `deviation_y_px` как `float32`,
+- `+6`: `marker_id`,
+- `+7`: флаг валидности (`1`/`0`).
 

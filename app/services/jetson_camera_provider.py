@@ -19,22 +19,39 @@ class JetsonCameraFrameProvider:
         self.gstreamer_pipeline = gstreamer_pipeline
         self._capture = None
 
+    def _resolve_sensor_id(self) -> int:
+        source = self.camera_device
+        if isinstance(source, str) and source.isdigit():
+            return int(source)
+        if isinstance(source, str) and source.startswith("/dev/video"):
+            suffix = source.replace("/dev/video", "")
+            if suffix.isdigit():
+                return int(suffix)
+        return 0
+
+    def _build_default_pipeline(self, sensor_id: int) -> str:
+        return (
+            f"nvarguscamerasrc sensor-id={sensor_id} ! "
+            "video/x-raw(memory:NVMM), width=1920, height=1080, framerate=29/1 ! "
+            "nvvidconv ! video/x-raw, format=BGRx ! "
+            "videoconvert ! video/x-raw, format=BGR ! "
+            "appsink drop=1"
+        )
+
     def _open_capture(self):
         if cv2 is None:
             return None
         if self._capture is not None and self._capture.isOpened():
             return self._capture
-        if self.gstreamer_pipeline:
-            self._capture = cv2.VideoCapture(self.gstreamer_pipeline, cv2.CAP_GSTREAMER)
+
+        sensor_id = self._resolve_sensor_id()
+        pipeline = self.gstreamer_pipeline or self._build_default_pipeline(sensor_id)
+        self._capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        if self._capture is not None and self._capture.isOpened():
             return self._capture
-        source: int | str = self.camera_device
-        if isinstance(source, str) and source.isdigit():
-            source = int(source)
-        if isinstance(source, str) and source.startswith("/dev/video"):
-            suffix = source.replace("/dev/video", "")
-            if suffix.isdigit():
-                source = int(suffix)
-        self._capture = cv2.VideoCapture(source)
+
+        # Fallback for development environments without nvargus.
+        self._capture = cv2.VideoCapture(sensor_id)
         return self._capture
 
     def get_frame_bytes(self) -> bytes:

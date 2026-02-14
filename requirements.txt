@@ -4,4 +4,5 @@ jinja2
 python-multipart
 numpy
 opencv-contrib-python-headless
+pymodbus
 

@@ -25,7 +25,7 @@ def get_bridge_runtime() -> BridgeCalibrationRuntime:
     settings = get_settings()
     bridge_provider = JetsonCameraFrameProvider(
         camera_device=settings.bridge_camera_device,
-        gstreamer_pipeline=(settings.bridge_camera_pipeline or None) if settings.use_jetson_cameras else None,
+        gstreamer_pipeline=settings.bridge_camera_pipeline or None,
     )
     return BridgeCalibrationRuntime(camera_provider=bridge_provider)
 
@@ -35,7 +35,7 @@ def get_hook_runtime() -> HookCalibrationRuntime:
     settings = get_settings()
     hook_provider = JetsonCameraFrameProvider(
         camera_device=settings.hook_camera_device,
-        gstreamer_pipeline=(settings.hook_camera_pipeline or None) if settings.use_jetson_cameras else None,
+        gstreamer_pipeline=settings.hook_camera_pipeline or None,
     )
     return HookCalibrationRuntime(camera_provider=hook_provider)
 

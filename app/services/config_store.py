@@ -201,7 +201,7 @@ class ConfigStore:
             roi_preview = bridge.get("roi_preview", {})
             if marker_positions:
                 bridge["xy_calib_poses"] = {
-                    f"aruco_{marker_id}": {"x_m": x_pos, "y_m": 0.0} for marker_id, x_pos in marker_positions.items()
+                    f"aruco_{marker_id}": {"x_m": x_pos} for marker_id, x_pos in marker_positions.items()
                 }
             if roi_preview and isinstance(roi_preview, dict):
                 padded = roi_preview.get("padded", {})
