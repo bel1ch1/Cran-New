@@ -19,6 +19,19 @@ class Settings:
     hook_camera_device: str
     bridge_camera_pipeline: str
     hook_camera_pipeline: str
+    modbus_host: str
+    modbus_port: int
+    modbus_unit_id: int
+    modbus_bridge_base_register: int
+    modbus_hook_base_register: int
+    influx_url: str
+    influx_org: str
+    influx_bucket: str
+    influx_token: str
+    influx_measurement: str
+    influx_field_bridge_x: str
+    influx_field_bridge_y: str
+    influx_field_hook_distance: str
 
 
 @lru_cache(maxsize=1)
@@ -46,5 +59,18 @@ def get_settings() -> Settings:
         hook_camera_device=os.getenv("CRAN_HOOK_CAMERA_DEVICE", "1"),
         bridge_camera_pipeline=os.getenv("CRAN_BRIDGE_CAMERA_PIPELINE", ""),
         hook_camera_pipeline=os.getenv("CRAN_HOOK_CAMERA_PIPELINE", ""),
+        modbus_host=os.getenv("CRAN_MODBUS_HOST", "127.0.0.1"),
+        modbus_port=int(os.getenv("CRAN_MODBUS_PORT", "5020")),
+        modbus_unit_id=int(os.getenv("CRAN_MODBUS_UNIT_ID", "1")),
+        modbus_bridge_base_register=int(os.getenv("CRAN_MODBUS_BRIDGE_BASE_REGISTER", "100")),
+        modbus_hook_base_register=int(os.getenv("CRAN_MODBUS_HOOK_BASE_REGISTER", "200")),
+        influx_url=os.getenv("CRAN_INFLUX_URL", ""),
+        influx_org=os.getenv("CRAN_INFLUX_ORG", ""),
+        influx_bucket=os.getenv("CRAN_INFLUX_BUCKET", ""),
+        influx_token=os.getenv("CRAN_INFLUX_TOKEN", ""),
+        influx_measurement=os.getenv("CRAN_INFLUX_MEASUREMENT", "crane_pose"),
+        influx_field_bridge_x=os.getenv("CRAN_INFLUX_FIELD_BRIDGE_X", "bridge_x_m"),
+        influx_field_bridge_y=os.getenv("CRAN_INFLUX_FIELD_BRIDGE_Y", "bridge_y_m"),
+        influx_field_hook_distance=os.getenv("CRAN_INFLUX_FIELD_HOOK_DISTANCE", "hook_distance_m"),
     )
 

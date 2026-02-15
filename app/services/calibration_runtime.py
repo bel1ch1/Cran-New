@@ -1,6 +1,7 @@
 import asyncio
 import json
 from dataclasses import asdict
+from threading import Lock
 from typing import Any, Protocol
 
 from app.services.calibration_algorithms import (
@@ -10,6 +11,26 @@ from app.services.calibration_algorithms import (
     MockHookCalibrationAlgorithm,
     draw_roi_overlay,
 )
+from app.services.external_pose_processes import ensure_pose_supervisor_scripts_running, stop_pose_supervisor_scripts
+
+_POSE_SCRIPTS_STATE_LOCK = Lock()
+_ACTIVE_CALIBRATION_RUNTIMES = 0
+
+
+def _enter_calibration_mode() -> None:
+    global _ACTIVE_CALIBRATION_RUNTIMES
+    with _POSE_SCRIPTS_STATE_LOCK:
+        if _ACTIVE_CALIBRATION_RUNTIMES == 0:
+            stop_pose_supervisor_scripts()
+        _ACTIVE_CALIBRATION_RUNTIMES += 1
+
+
+def _leave_calibration_mode() -> None:
+    global _ACTIVE_CALIBRATION_RUNTIMES
+    with _POSE_SCRIPTS_STATE_LOCK:
+        _ACTIVE_CALIBRATION_RUNTIMES = max(0, _ACTIVE_CALIBRATION_RUNTIMES - 1)
+        if _ACTIVE_CALIBRATION_RUNTIMES == 0:
+            ensure_pose_supervisor_scripts_running()
 
 class CameraFrameProvider(Protocol):
     def get_frame_bytes(self) -> bytes:
@@ -37,6 +58,7 @@ class BridgeCalibrationRuntime:
         self.camera_provider = camera_provider or MockCameraFrameProvider()
         self.is_calibration_running = False
         self.last_frame_bytes: bytes = b""
+        self._pose_scripts_stopped = False
 
     def handle_command(self, raw_text: str) -> None:
         try:
@@ -52,6 +74,9 @@ class BridgeCalibrationRuntime:
             self.is_calibration_running = False
 
     async def tick(self, marker_size_mm: int | None = None) -> dict[str, Any]:
+        if not self._pose_scripts_stopped:
+            _enter_calibration_mode()
+            self._pose_scripts_stopped = True
         await asyncio.sleep(0.15)
         frame = self.camera_provider.get_frame_bytes()
         result = self.algorithm.process_frame(
@@ -69,6 +94,9 @@ class BridgeCalibrationRuntime:
         self.camera_provider.close()
         self.last_frame_bytes = b""
         self.is_calibration_running = False
+        if self._pose_scripts_stopped:
+            _leave_calibration_mode()
+        self._pose_scripts_stopped = False
 
 
 class HookCalibrationRuntime:
@@ -81,6 +109,7 @@ class HookCalibrationRuntime:
         self.camera_provider = camera_provider or MockCameraFrameProvider()
         self.is_calibration_running = False
         self.last_frame_bytes: bytes = b""
+        self._pose_scripts_stopped = False
 
     def handle_command(self, raw_text: str) -> None:
         try:
@@ -100,6 +129,9 @@ class HookCalibrationRuntime:
         marker_size_mm: int | None = None,
         marker_id: int | None = None,
     ) -> dict[str, Any]:
+        if not self._pose_scripts_stopped:
+            _enter_calibration_mode()
+            self._pose_scripts_stopped = True
         await asyncio.sleep(0.15)
         frame = self.camera_provider.get_frame_bytes()
         if frame:
@@ -117,4 +149,7 @@ class HookCalibrationRuntime:
         self.camera_provider.close()
         self.last_frame_bytes = b""
         self.is_calibration_running = False
+        if self._pose_scripts_stopped:
+            _leave_calibration_mode()
+        self._pose_scripts_stopped = False
 

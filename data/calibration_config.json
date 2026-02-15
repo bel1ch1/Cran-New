@@ -2,7 +2,7 @@
   "meta": {
     "app": "CRAN Calibration Console",
     "version": "1.0.0",
-    "updated_at": "2026-02-14T10:45:18.476863+00:00"
+    "updated_at": "2026-02-15T09:14:14.604381+00:00"
   },
   "hook_calibration": {
     "marker_size_mm": 35,
@@ -49,20 +49,13 @@
       "h": 149
     },
     "result": {
-      "crane_x_m": 0.28,
+      "crane_x_m": 0.0,
       "trolley_y_m": 0.0,
-      "known_marker_count": 8,
-      "calibration_quality": 0.744
+      "known_marker_count": 1,
+      "calibration_quality": 0.5
     },
     "marker_positions_m": {
-      "1": 0.0,
-      "2": 0.0709,
-      "3": 0.1371,
-      "4": 0.2057,
-      "5": 0.2736,
-      "6": 0.3338,
-      "7": 0.4665,
-      "8": 0.4706
+      "1": 0.0
     },
     "roi_preview": {
       "raw": {
@@ -87,6 +80,6 @@
     "dashboard_url": "http://192.168.0.18:8888/sources/1/dashboards/4"
   },
   "management": {
-    "last_command": null
+    "last_command": "restart"
   }
 }

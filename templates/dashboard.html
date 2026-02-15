@@ -1,17 +1,400 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>Дашборд</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Статистика</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; }
-        iframe {
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
             width: 100%;
-            height: 100vh;
-            border: none;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #2a2a2a;
+            border-radius: 8px;
+            border: 1px solid #404040;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        header {
+            background: linear-gradient(to right, #3a3a3a, #4a4a4a);
+            padding: 20px;
+            border-bottom: 1px solid #555;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: #f0f0f0;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 6px;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .back-button {
+            color: #aaa;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-button:hover {
+            color: #e0e0e0;
+        }
+
+        .status-line {
+            font-size: 13px;
+            color: #90caf9;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(240px, 1fr));
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .card {
+            background: #252525;
+            border: 1px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 16px;
+        }
+
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #f0f0f0;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dashed #3a3a3a;
+            padding: 6px 0;
+            font-size: 14px;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric .label {
+            color: #b0b0b0;
+        }
+
+        .metric .value {
+            color: #e8e8e8;
+            font-weight: 600;
+        }
+
+        .value-ok {
+            color: #81c784 !important;
+        }
+
+        .value-bad {
+            color: #ef9a9a !important;
+        }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .chart-card {
+            background: #252525;
+            border: 1px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .chart-title {
+            font-size: 14px;
+            color: #cfcfcf;
+            margin-bottom: 8px;
+        }
+
+        .chart-meta {
+            font-size: 12px;
+            color: #9e9e9e;
+            margin-bottom: 8px;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 220px;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            background: #181818;
+            display: block;
+        }
+
+        @media (max-width: 900px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <iframe src="http://192.168.0.18:8888/sources/1/dashboards/4"></iframe>
+    <div class="container">
+        <header>
+            <h1>Статистика</h1>
+            <div class="subtitle">Кастомный дашборд: live Modbus + история из InfluxDB (если доступна)</div>
+        </header>
+
+        <div class="content">
+            <div class="top-row">
+                <a href="/main" class="back-button">← Назад на главную</a>
+                <div id="poll-status" class="status-line">Ожидание данных...</div>
+            </div>
+
+            <div class="cards">
+                <div class="card">
+                    <h2>Bridge Pose</h2>
+                    <div class="metric"><span class="label">X (м)</span><span id="bridge-x" class="value">-</span></div>
+                    <div class="metric"><span class="label">Y (м)</span><span id="bridge-y" class="value">-</span></div>
+                    <div class="metric"><span class="label">Marker ID</span><span id="bridge-marker" class="value">-</span></div>
+                    <div class="metric"><span class="label">Valid</span><span id="bridge-valid" class="value">-</span></div>
+                </div>
+                <div class="card">
+                    <h2>Hook Pose</h2>
+                    <div class="metric"><span class="label">Distance (м)</span><span id="hook-distance" class="value">-</span></div>
+                    <div class="metric"><span class="label">dX (px)</span><span id="hook-dx" class="value">-</span></div>
+                    <div class="metric"><span class="label">dY (px)</span><span id="hook-dy" class="value">-</span></div>
+                    <div class="metric"><span class="label">Marker ID / Valid</span><span id="hook-marker-valid" class="value">-</span></div>
+                </div>
+            </div>
+
+            <div class="chart-grid">
+                <div class="chart-card">
+                    <div class="chart-title">Bridge X (м)</div>
+                    <div id="chart-meta-bridge-x" class="chart-meta">Загрузка...</div>
+                    <canvas id="chart-bridge-x" class="chart-canvas" width="1000" height="220"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Bridge Y (м)</div>
+                    <div id="chart-meta-bridge-y" class="chart-meta">Загрузка...</div>
+                    <canvas id="chart-bridge-y" class="chart-canvas" width="1000" height="220"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Hook Distance (м)</div>
+                    <div id="chart-meta-hook-distance" class="chart-meta">Загрузка...</div>
+                    <canvas id="chart-hook-distance" class="chart-canvas" width="1000" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const MAX_POINTS = 240;
+        const chartBuffers = {
+            bridgeX: [],
+            bridgeY: [],
+            hookDistance: [],
+        };
+
+        function setValidElement(element, isValid) {
+            element.classList.remove('value-ok', 'value-bad');
+            element.classList.add(isValid ? 'value-ok' : 'value-bad');
+        }
+
+        function asNumber(value, digits) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return '-';
+            }
+            return value.toFixed(digits);
+        }
+
+        function pushPoint(buffer, value) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return;
+            }
+            buffer.push({ t: new Date().toISOString(), v: value });
+            if (buffer.length > MAX_POINTS) {
+                buffer.shift();
+            }
+        }
+
+        function mergeHistory(buffer, historyPoints) {
+            if (!Array.isArray(historyPoints)) {
+                return;
+            }
+            buffer.length = 0;
+            for (const p of historyPoints) {
+                if (!p || typeof p.v !== 'number') {
+                    continue;
+                }
+                buffer.push({ t: p.t || new Date().toISOString(), v: p.v });
+            }
+            if (buffer.length > MAX_POINTS) {
+                buffer.splice(0, buffer.length - MAX_POINTS);
+            }
+        }
+
+        function drawChart(canvasId, metaId, points, color) {
+            const canvas = document.getElementById(canvasId);
+            const meta = document.getElementById(metaId);
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            const padX = 40;
+            const padY = 16;
+            ctx.clearRect(0, 0, w, h);
+
+            if (!points.length) {
+                ctx.fillStyle = '#777';
+                ctx.font = '14px Segoe UI';
+                ctx.fillText('Нет данных', padX, h / 2);
+                meta.textContent = 'Нет точек';
+                return;
+            }
+
+            const values = points.map((p) => p.v);
+            const minV = Math.min(...values);
+            const maxV = Math.max(...values);
+            const span = Math.max(1e-6, maxV - minV);
+
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = padY + ((h - 2 * padY) * i) / 4;
+                ctx.beginPath();
+                ctx.moveTo(padX, y);
+                ctx.lineTo(w - 8, y);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            points.forEach((p, i) => {
+                const x = padX + ((w - padX - 8) * i) / Math.max(1, points.length - 1);
+                const y = h - padY - ((p.v - minV) / span) * (h - 2 * padY);
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+            ctx.stroke();
+
+            ctx.fillStyle = '#9e9e9e';
+            ctx.font = '12px Segoe UI';
+            ctx.fillText(maxV.toFixed(3), 4, padY + 4);
+            ctx.fillText(minV.toFixed(3), 4, h - padY);
+
+            const last = points[points.length - 1];
+            meta.textContent = `Точек: ${points.length} | Min: ${minV.toFixed(4)} | Max: ${maxV.toFixed(4)} | Last: ${last.v.toFixed(4)}`;
+        }
+
+        function redrawCharts() {
+            drawChart('chart-bridge-x', 'chart-meta-bridge-x', chartBuffers.bridgeX, '#4fc3f7');
+            drawChart('chart-bridge-y', 'chart-meta-bridge-y', chartBuffers.bridgeY, '#81c784');
+            drawChart('chart-hook-distance', 'chart-meta-hook-distance', chartBuffers.hookDistance, '#ffb74d');
+        }
+
+        async function loadHistoryFromInflux() {
+            try {
+                const response = await fetch('/statistics/modbus-history', { cache: 'no-store' });
+                if (!response.ok) {
+                    return;
+                }
+                const payload = await response.json();
+                const series = payload.series || {};
+                mergeHistory(chartBuffers.bridgeX, series.bridge_x_m);
+                mergeHistory(chartBuffers.bridgeY, series.bridge_y_m);
+                mergeHistory(chartBuffers.hookDistance, series.hook_distance_m);
+                redrawCharts();
+            } catch (_err) {
+                // Keep live-only mode.
+            }
+        }
+
+        async function pollModbusPose() {
+            const statusEl = document.getElementById('poll-status');
+            try {
+                const response = await fetch('/statistics/modbus-pose', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const bridge = payload.bridge || {};
+                const hook = payload.hook || {};
+
+                document.getElementById('bridge-x').textContent = asNumber(bridge.x_m, 4);
+                document.getElementById('bridge-y').textContent = asNumber(bridge.y_m, 4);
+                document.getElementById('bridge-marker').textContent = bridge.marker_id ?? '-';
+
+                const bridgeValidEl = document.getElementById('bridge-valid');
+                bridgeValidEl.textContent = bridge.valid ? '1' : '0';
+                setValidElement(bridgeValidEl, Boolean(bridge.valid));
+                pushPoint(chartBuffers.bridgeX, bridge.x_m);
+                pushPoint(chartBuffers.bridgeY, bridge.y_m);
+
+                document.getElementById('hook-distance').textContent = asNumber(hook.distance_m, 4);
+                document.getElementById('hook-dx').textContent = asNumber(hook.deviation_x_px, 2);
+                document.getElementById('hook-dy').textContent = asNumber(hook.deviation_y_px, 2);
+                pushPoint(chartBuffers.hookDistance, hook.distance_m);
+
+                const hookValidText = `${hook.marker_id ?? '-'} / ${hook.valid ? 1 : 0}`;
+                const hookMarkerValidEl = document.getElementById('hook-marker-valid');
+                hookMarkerValidEl.textContent = hookValidText;
+                setValidElement(hookMarkerValidEl, Boolean(hook.valid));
+                redrawCharts();
+
+                const now = new Date().toLocaleTimeString();
+                if (payload.error) {
+                    statusEl.textContent = `[${now}] Ошибка Modbus: ${payload.error}`;
+                    statusEl.style.color = '#ef9a9a';
+                } else if (payload.connected) {
+                    statusEl.textContent = `[${now}] Modbus подключен`;
+                    statusEl.style.color = '#81c784';
+                } else {
+                    statusEl.textContent = `[${now}] Нет подключения к Modbus`;
+                    statusEl.style.color = '#ef9a9a';
+                }
+            } catch (error) {
+                const now = new Date().toLocaleTimeString();
+                statusEl.textContent = `[${now}] Ошибка запроса: ${error.message}`;
+                statusEl.style.color = '#ef9a9a';
+            }
+        }
+
+        loadHistoryFromInflux();
+        pollModbusPose();
+        setInterval(pollModbusPose, 1000);
+    </script>
 </body>
 </html>

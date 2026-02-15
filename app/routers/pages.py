@@ -3,19 +3,22 @@ from fastapi.responses import RedirectResponse
 from starlette import status
 
 from app.core.security import get_current_user, is_authenticated
-from app.dependencies import get_templates
+from app.dependencies import get_config_store, get_templates
 
 router = APIRouter(tags=["pages"])
 
 
-def _protected_template(request: Request, template_name: str):
+def _protected_template(request: Request, template_name: str, extra_context: dict | None = None):
     if not is_authenticated(request):
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     templates = get_templates()
+    context = {"user": get_current_user(request)}
+    if extra_context:
+        context.update(extra_context)
     return templates.TemplateResponse(
         request=request,
         name=template_name,
-        context={"user": get_current_user(request)},
+        context=context,
     )
 
 
@@ -42,7 +45,12 @@ async def hook_calibration_page(request: Request):
 
 @router.get("/statistics")
 async def statistics_page(request: Request):
-    return _protected_template(request, "dashboard.html")
+    payload = get_config_store().load()
+    dashboard_url = (
+        payload.get("statistics", {}).get("dashboard_url")
+        or "http://192.168.0.18:8888/sources/1/dashboards/4"
+    )
+    return _protected_template(request, "dashboard.html", {"dashboard_url": dashboard_url})
 
 
 @router.get("/management")

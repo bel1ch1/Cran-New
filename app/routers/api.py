@@ -3,11 +3,14 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette import status
 
+from app.core.settings import get_settings
 from app.core.security import is_authenticated
 from app.dependencies import get_bridge_runtime, get_config_store, get_hook_runtime
 from app.schemas.calibration import CommandResponse, XYMarkerSettings, ZMarkerSettings
 from app.services.config_store import ConfigStore
 from app.services.control_service import get_command_message
+from app.services.influx_pose_reader import InfluxPoseConfig, read_pose_history_from_influx
+from app.services.modbus_pose_reader import ModbusPoseReaderConfig, read_pose_values
 
 router = APIRouter(tags=["api"])
 
@@ -51,6 +54,39 @@ async def xy_marker_settings_get(request: Request):
 async def calibration_data(request: Request):
     _require_auth(request)
     return _store().get_calibration_data()
+
+
+@router.get("/statistics/modbus-pose")
+async def statistics_modbus_pose(request: Request):
+    _require_auth(request)
+    settings = get_settings()
+    return read_pose_values(
+        ModbusPoseReaderConfig(
+            host=settings.modbus_host,
+            port=settings.modbus_port,
+            unit_id=settings.modbus_unit_id,
+            bridge_base_register=settings.modbus_bridge_base_register,
+            hook_base_register=settings.modbus_hook_base_register,
+        )
+    )
+
+
+@router.get("/statistics/modbus-history")
+async def statistics_modbus_history(request: Request):
+    _require_auth(request)
+    settings = get_settings()
+    return read_pose_history_from_influx(
+        InfluxPoseConfig(
+            url=settings.influx_url,
+            org=settings.influx_org,
+            bucket=settings.influx_bucket,
+            token=settings.influx_token,
+            measurement=settings.influx_measurement,
+            field_bridge_x=settings.influx_field_bridge_x,
+            field_bridge_y=settings.influx_field_bridge_y,
+            field_hook_distance=settings.influx_field_hook_distance,
+        )
+    )
 
 
 @router.post("/save-calibration")

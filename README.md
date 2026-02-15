@@ -24,6 +24,19 @@ uvicorn main:app --reload
 - `CRAN_HOOK_CAMERA_DEVICE` (по умолчанию `1`, `sensor-id` для крюка)
 - `CRAN_BRIDGE_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
 - `CRAN_HOOK_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
+- `CRAN_MODBUS_HOST` (по умолчанию `127.0.0.1`)
+- `CRAN_MODBUS_PORT` (по умолчанию `5020`)
+- `CRAN_MODBUS_UNIT_ID` (по умолчанию `1`)
+- `CRAN_MODBUS_BRIDGE_BASE_REGISTER` (по умолчанию `100`)
+- `CRAN_MODBUS_HOOK_BASE_REGISTER` (по умолчанию `200`)
+- `CRAN_INFLUX_URL` (например `http://127.0.0.1:8086`)
+- `CRAN_INFLUX_ORG`
+- `CRAN_INFLUX_BUCKET`
+- `CRAN_INFLUX_TOKEN`
+- `CRAN_INFLUX_MEASUREMENT` (по умолчанию `crane_pose`)
+- `CRAN_INFLUX_FIELD_BRIDGE_X` (по умолчанию `bridge_x_m`)
+- `CRAN_INFLUX_FIELD_BRIDGE_Y` (по умолчанию `bridge_y_m`)
+- `CRAN_INFLUX_FIELD_HOOK_DISTANCE` (по умолчанию `hook_distance_m`)
 
 ## Архитектура
 
@@ -142,4 +155,50 @@ python hook_pose_modbus.py --use-gstreamer --modbus-host 127.0.0.1 --modbus-port
 - `+4..+5`: `deviation_y_px` как `float32`,
 - `+6`: `marker_id`,
 - `+7`: флаг валидности (`1`/`0`).
+
+## Автоперезапуск скриптов
+
+Для запуска с автоперезапуском добавлены supervisor-скрипты:
+
+- `run_bridge_pose_supervisor.py` (следит за `bridge_pose_modbus.py`)
+- `run_hook_pose_supervisor.py` (следит за `hook_pose_modbus.py`)
+
+Примеры запуска:
+
+```bash
+python run_bridge_pose_supervisor.py -- --use-gstreamer --modbus-host 0.0.0.0 --modbus-port 5020 --modbus-base-register 100
+python run_hook_pose_supervisor.py -- --use-gstreamer --modbus-host 127.0.0.1 --modbus-port 5020 --modbus-base-register 200
+```
+
+Supervisor автоматически перезапускает дочерний процесс после любого завершения.
+PID-файлы пишутся в `data/runtime/`.
+
+## Освобождение камер для калибровки
+
+При первом вызове `tick()` в `BridgeCalibrationRuntime` и `HookCalibrationRuntime` приложение вызывает
+`stop_pose_supervisor_scripts()` и останавливает:
+
+- `bridge_pose_supervisor.pid`
+- `hook_pose_supervisor.pid`
+- `bridge_pose_modbus.pid`
+- `hook_pose_modbus.pid`
+
+Это сделано, чтобы процессы калибровки FastAPI могли безопасно захватить камеры.
+
+После завершения калибровки (закрытие runtime/websocket) supervisor-скрипты запускаются автоматически снова.
+Если одновременно запущены bridge и hook калибровки, автозапуск выполняется только после завершения обеих.
+
+## Статистика Modbus в UI
+
+Страница `/statistics` теперь показывает live-значения из общего Modbus:
+
+- `Bridge`: `X`, `Y`, `marker_id`, `valid`;
+- `Hook`: `distance`, `deviation_x_px`, `deviation_y_px`, `marker_id`, `valid`.
+
+Данные запрашиваются через API `GET /statistics/modbus-pose` (требуется авторизация).
+Исторические точки для графиков запрашиваются через `GET /statistics/modbus-history`.
+
+Если InfluxDB не настроен или недоступен, страница работает в fallback-режиме:
+- карточки значений продолжают обновляться из Modbus;
+- графики строятся по live-потоку без исторической выборки.
 
