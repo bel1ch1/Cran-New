@@ -2,7 +2,7 @@
   "meta": {
     "app": "CRAN Calibration Console",
     "version": "1.0.0",
-    "updated_at": "2026-02-15T09:14:14.604381+00:00"
+    "updated_at": "2026-02-20T08:49:49.019619+00:00"
   },
   "hook_calibration": {
     "marker_size_mm": 35,
@@ -14,7 +14,7 @@
   },
   "bridge_calibration": {
     "marker_size_mm": 35,
-    "movement_direction": "unknown",
+    "movement_direction": "left_to_right; axis=normal",
     "camera": {
       "camera_id": 0,
       "description": "Bridge/Trolley camera"
@@ -49,32 +49,41 @@
       "h": 149
     },
     "result": {
-      "crane_x_m": 0.0,
+      "crane_x_m": 0.282,
       "trolley_y_m": 0.0,
-      "known_marker_count": 1,
+      "known_marker_count": 9,
       "calibration_quality": 0.5
     },
     "marker_positions_m": {
-      "1": 0.0
+      "0": 0.0,
+      "1": 0.0,
+      "2": 0.065,
+      "3": 0.1264,
+      "4": 0.1892,
+      "5": 0.253,
+      "6": 0.3096,
+      "7": 0.4502,
+      "8": 0.5275
     },
     "roi_preview": {
       "raw": {
-        "x": 31,
-        "y": 234,
-        "w": 544,
-        "h": 91
+        "x": 58,
+        "y": 237,
+        "w": 553,
+        "h": 83
       },
       "padded": {
-        "x": 0,
-        "y": 222,
-        "w": 629,
-        "h": 115
+        "x": 3,
+        "y": 225,
+        "w": 636,
+        "h": 107
       },
       "frame": {
         "width": 640,
         "height": 480
       }
-    }
+    },
+    "zero_marker_offset_m": 0.0
   },
   "statistics": {
     "dashboard_url": "http://192.168.0.18:8888/sources/1/dashboards/4"

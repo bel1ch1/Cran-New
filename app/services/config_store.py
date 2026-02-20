@@ -33,12 +33,13 @@ class ConfigStore:
             },
             "bridge_calibration": {
                 "marker_size_mm": None,
+                "zero_marker_offset_m": 0.0,
                 "movement_direction": "unknown",
                 "camera": {
                     "camera_id": 0,
                     "description": "Bridge/Trolley camera",
                 },
-                "marker_positions_m": {"1": 0.0},
+                "marker_positions_m": {"0": 0.0},
                 "roi_preview": {},
                 "xy_calib_poses": {},
                 "roi": {},
@@ -79,9 +80,13 @@ class ConfigStore:
         payload.setdefault("bridge_calibration", {})
         bridge = payload["bridge_calibration"]
         bridge.setdefault("marker_size_mm", None)
+        bridge.setdefault("zero_marker_offset_m", 0.0)
         bridge.setdefault("movement_direction", "unknown")
         bridge.setdefault("camera", {"camera_id": 0, "description": "Bridge/Trolley camera"})
-        bridge.setdefault("marker_positions_m", {"1": 0.0})
+        bridge.setdefault("marker_positions_m", {"0": 0.0})
+        if "0" not in bridge["marker_positions_m"] and bridge["marker_positions_m"]:
+            min_id = min(bridge["marker_positions_m"], key=lambda item: int(item))
+            bridge["marker_positions_m"]["0"] = float(bridge["marker_positions_m"][min_id])
         bridge.setdefault("roi_preview", {})
         if "xy_calib_poses" not in bridge:
             legacy_1920 = bridge.pop("xy_calib_poses_1920x1080", {})
@@ -120,10 +125,11 @@ class ConfigStore:
             self._mark_updated(payload)
             self._write(payload)
 
-    def update_bridge_settings(self, marker_size: int) -> None:
+    def update_bridge_settings(self, marker_size: int, zero_marker_offset_m: float = 0.0) -> None:
         with self._lock:
             payload = self._read()
             payload["bridge_calibration"]["marker_size_mm"] = marker_size
+            payload["bridge_calibration"]["zero_marker_offset_m"] = float(zero_marker_offset_m)
             self._mark_updated(payload)
             self._write(payload)
 
@@ -141,8 +147,9 @@ class ConfigStore:
         bridge = payload["bridge_calibration"]
         return {
             "marker_size_mm": bridge.get("marker_size_mm"),
+            "zero_marker_offset_m": bridge.get("zero_marker_offset_m", 0.0),
             "camera": bridge.get("camera", {}),
-            "marker_positions_m": bridge.get("marker_positions_m", {"1": 0.0}),
+            "marker_positions_m": bridge.get("marker_positions_m", {"0": 0.0}),
             "roi_preview": bridge.get("roi_preview", {}),
             "movement_direction": bridge.get("movement_direction", "unknown"),
         }
@@ -185,11 +192,12 @@ class ConfigStore:
         payload = self.load()
         bridge = payload["bridge_calibration"]
         return {
-            "marker_positions_m": bridge.get("marker_positions_m", {"1": 0.0}),
+            "marker_positions_m": bridge.get("marker_positions_m", {"0": 0.0}),
             "roi_preview": bridge.get("roi_preview", {}),
             "xy_calib_poses": bridge.get("xy_calib_poses", {}),
             "roi": bridge.get("roi", {}),
             "movement_direction": bridge.get("movement_direction", "unknown"),
+            "zero_marker_offset_m": bridge.get("zero_marker_offset_m", 0.0),
             "result": bridge.get("result", {}),
         }
 

@@ -40,7 +40,10 @@ async def z_marker_settings_get(request: Request):
 @router.post("/xy-marker-settings")
 async def xy_marker_settings(payload: XYMarkerSettings, request: Request):
     _require_auth(request)
-    _store().update_bridge_settings(marker_size=payload.marker_size)
+    _store().update_bridge_settings(
+        marker_size=payload.marker_size,
+        zero_marker_offset_m=payload.zero_marker_offset_m,
+    )
     return {"message": "Настройки калибровки моста сохранены"}
 
 
@@ -187,7 +190,11 @@ async def bridge_camera_stream(websocket: WebSocket):
 
             bridge_settings = _store().get_bridge_settings()
             marker_size_mm = bridge_settings.get("marker_size_mm") or 100
-            state = await runtime.tick(marker_size_mm=marker_size_mm)
+            zero_marker_offset_m = float(bridge_settings.get("zero_marker_offset_m") or 0.0)
+            state = await runtime.tick(
+                marker_size_mm=marker_size_mm,
+                zero_marker_offset_m=zero_marker_offset_m,
+            )
             _store().update_bridge_runtime_result(
                 crane_x_m=state["crane_x_m"],
                 trolley_y_m=state["trolley_y_m"],

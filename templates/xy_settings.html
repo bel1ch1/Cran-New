@@ -324,6 +324,13 @@
                             <span class="unit">мм</span>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="zeroMarkerOffset">Сдвиг нулевого маркера (м)</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="zeroMarkerOffset" name="zeroMarkerOffset" step="0.001" min="-10000" max="10000" required>
+                            <span class="unit">м</span>
+                        </div>
+                    </div>
                     <div class="button-group">
                         <button type="submit" class="btn btn-primary">Применить настройки</button>
                     </div>
@@ -350,6 +357,7 @@
 
 <script>
     const markerInput = document.getElementById('markerSize');
+    const zeroMarkerOffsetInput = document.getElementById('zeroMarkerOffset');
 
     async function loadCurrentXYSettings() {
         try {
@@ -363,9 +371,11 @@
             } else {
                 markerInput.value = 100;
             }
+            zeroMarkerOffsetInput.value = Number(data.zero_marker_offset_m ?? 0).toFixed(3);
         } catch (error) {
             console.error('Ошибка загрузки настроек XY:', error);
             markerInput.value = 100;
+            zeroMarkerOffsetInput.value = "0.000";
         }
     }
 
@@ -375,10 +385,12 @@
         // Получаем данные из формы
         const formData = new FormData(this);
         const markerSize = formData.get('markerSize');
+        const zeroMarkerOffset = formData.get('zeroMarkerOffset');
 
         // Создаем объект с данными для отправки
         const calibrationData = {
-            marker_size: parseInt(markerSize)
+            marker_size: parseInt(markerSize),
+            zero_marker_offset_m: Number(zeroMarkerOffset)
         };
 
         console.log('Отправка данных на сервер:', calibrationData);

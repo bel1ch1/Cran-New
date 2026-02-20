@@ -1,5 +1,5 @@
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from statistics import mean, pstdev
 from typing import Protocol
@@ -133,7 +133,13 @@ class HookCalibrationResult:
 
 
 class BridgeCalibrationAlgorithm(Protocol):
-    def process_frame(self, frame_bytes: bytes, calibration_enabled: bool, marker_size_mm: int) -> BridgeCalibrationResult:
+    def process_frame(
+        self,
+        frame_bytes: bytes,
+        calibration_enabled: bool,
+        marker_size_mm: int,
+        zero_marker_offset_m: float = 0.0,
+    ) -> BridgeCalibrationResult:
         """Calculate bridge/trolley calibration values from a camera frame."""
 
 
@@ -159,7 +165,6 @@ class MockBridgeCalibrationAlgorithm:
 
     def __init__(self) -> None:
         self._x_pose_m = 0.0
-        # Temporary anchor shift: start calibration from marker id=1 as zero point.
         self._known_positions_m: dict[int, float] = {1: 0.0}
         self._candidate_abs_x: dict[int, list[float]] = defaultdict(list)
         self._pair_residuals: list[float] = []
@@ -169,6 +174,21 @@ class MockBridgeCalibrationAlgorithm:
         self._last_center_marker_id: int | None = None
         self._direction_score: int = 0
         self._movement_direction: str = "unknown"
+        self._zero_marker_offset_m: float = 0.0
+        self._orientation_votes: deque[int] = deque(maxlen=40)
+        self._axis_orientation_sign: int = 1
+
+    def _apply_zero_marker_offset(self, zero_marker_offset_m: float) -> None:
+        target = float(zero_marker_offset_m)
+        current = self._known_positions_m.get(0, self._zero_marker_offset_m)
+        delta = target - current
+        if abs(delta) <= 1e-9:
+            self._known_positions_m[0] = target
+            self._zero_marker_offset_m = target
+            return
+        for marker_id in list(self._known_positions_m.keys()):
+            self._known_positions_m[marker_id] = round(self._known_positions_m[marker_id] + delta, 6)
+        self._zero_marker_offset_m = target
 
     def _update_movement_direction(self, observations: list[dict]) -> None:
         if not observations:
@@ -189,6 +209,32 @@ class MockBridgeCalibrationAlgorithm:
         else:
             self._movement_direction = "unknown"
 
+    def _update_axis_orientation(self, observations: list[dict]) -> None:
+        if len(observations) < 2:
+            return
+        known_obs = [obs for obs in observations if obs["id"] in self._known_positions_m]
+        if len(known_obs) < 2:
+            return
+
+        known_obs.sort(key=lambda item: item["id"])
+        for idx in range(len(known_obs) - 1):
+            a = known_obs[idx]
+            b = known_obs[idx + 1]
+            known_delta = self._known_positions_m[b["id"]] - self._known_positions_m[a["id"]]
+            observed_delta = b["x_rel_m"] - a["x_rel_m"]
+            if abs(known_delta) < 1e-6 or abs(observed_delta) < 1e-6:
+                continue
+            orientation_vote = 1 if (known_delta * observed_delta) > 0 else -1
+            self._orientation_votes.append(orientation_vote)
+
+        if not self._orientation_votes:
+            return
+        score = sum(self._orientation_votes)
+        if score >= 2:
+            self._axis_orientation_sign = 1
+        elif score <= -2:
+            self._axis_orientation_sign = -1
+
     def _monotonic_ok(self, marker_id: int, candidate_x: float) -> bool:
         prev_id = marker_id - 1
         next_id = marker_id + 1
@@ -200,15 +246,16 @@ class MockBridgeCalibrationAlgorithm:
 
     def _try_confirm_marker(self, marker_id: int) -> bool:
         values = self._candidate_abs_x.get(marker_id, [])
-        if len(values) < 8:
+        if len(values) < 7:
             return False
         sigma = pstdev(values) if len(values) > 1 else 0.0
         candidate_x = mean(values)
-        if sigma > 0.12:
+        if sigma > 0.08:
             return False
         if not self._monotonic_ok(marker_id, candidate_x):
             return False
         self._known_positions_m[marker_id] = round(candidate_x, 4)
+        self._candidate_abs_x[marker_id].clear()
         return True
 
     def _decode_frame(self, frame_bytes: bytes):
@@ -235,7 +282,6 @@ class MockBridgeCalibrationAlgorithm:
         if not CV2_AVAILABLE or frame is None:
             return [], None, None
         frame_height, frame_width = frame.shape[:2]
-        frame_center_x_px = frame_width / 2.0
         gray_scale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = cv2.aruco.detectMarkers(
             gray_scale_frame,
@@ -266,12 +312,7 @@ class MockBridgeCalibrationAlgorithm:
 
             tvec_xyz = tvec[0][0]
             marker_points = corner[0]
-            marker_center_x_px = float(np.mean(marker_points[:, 0]))
-            offset_x_px = marker_center_x_px - frame_center_x_px
-            z_m = float(tvec_xyz[2])
-            fx = float(CAMERA_MATRIX[0, 0])
-            # Bridge coordinate reference is frame center.
-            rel_x_m = float((offset_x_px / fx) * z_m)
+            rel_x_m = float(tvec_xyz[0])
             distance_m = float(math.sqrt(float(tvec_xyz[0] ** 2 + tvec_xyz[1] ** 2 + tvec_xyz[2] ** 2)))
             marker_size_px = self._extract_marker_size_px(corner)
             min_x = min(min_x, int(np.min(marker_points[:, 0])))
@@ -294,16 +335,11 @@ class MockBridgeCalibrationAlgorithm:
     def _weight_from_distance(self, distance_m: float) -> float:
         return 1.0 / (0.05 + distance_m * distance_m)
 
-    def _distance_scale(self, pair_distance_m: float) -> float:
-        if not self._reference_distance_m or pair_distance_m <= 0.0:
-            return 1.0
-        return self._reference_distance_m / pair_distance_m
-
     def _distance_is_acceptable(self, pair_distance_m: float) -> bool:
         if not self._reference_distance_m or pair_distance_m <= 0.0:
             return True
         relative = abs(pair_distance_m - self._reference_distance_m) / self._reference_distance_m
-        return relative <= 0.35
+        return relative <= 0.55
 
     def _update_marker_map_from_observations(
         self,
@@ -313,11 +349,12 @@ class MockBridgeCalibrationAlgorithm:
         if not observations:
             return "Маркеры не найдены", {}
 
+        self._update_axis_orientation(observations)
         known_obs = [obs for obs in observations if obs["id"] in self._known_positions_m]
-        unknown_obs = [obs for obs in observations if obs["id"] not in self._known_positions_m]
+        obs_by_id = {obs["id"]: obs for obs in observations}
 
-        # Capture reference distance from anchor marker id=1 (temporary zero marker).
-        anchor_obs = next((obs for obs in observations if obs["id"] == 1), None)
+        # Capture reference distance from anchor marker id=0.
+        anchor_obs = obs_by_id.get(0)
         if anchor_obs is not None:
             self._reference_distance_m = anchor_obs["distance_m"]
 
@@ -326,35 +363,37 @@ class MockBridgeCalibrationAlgorithm:
             estimates = []
             for obs in known_obs:
                 known_x = self._known_positions_m[obs["id"]]
-                camera_x = known_x - obs["x_rel_m"]
-                estimates.append((camera_x, self._weight_from_distance(obs["distance_m"])))
-            weighted_sum = sum(value * w for value, w in estimates)
-            weights_sum = sum(w for _, w in estimates) or 1.0
-            self._x_pose_m = max(0.0, weighted_sum / weights_sum)
+                camera_x = known_x - (self._axis_orientation_sign * obs["x_rel_m"])
+                estimates.append(camera_x)
+            self._x_pose_m = mean(estimates)
 
         if not calibration_enabled:
             return "Мониторинг маркеров", {}
 
-        if known_obs and unknown_obs:
+        if known_obs:
             used_pairs = 0
             rejected_by_distance = 0
             for known in known_obs:
-                for unknown in unknown_obs:
-                    # Enforce marker id order rule.
-                    if unknown["id"] <= known["id"]:
-                        continue
-                    pair_distance = (known["distance_m"] + unknown["distance_m"]) / 2.0
-                    if not self._distance_is_acceptable(pair_distance):
-                        rejected_by_distance += 1
-                        continue
-                    # Use absolute delta so calibration is direction-independent (left->right and right->left).
-                    corrected_delta = abs((unknown["x_rel_m"] - known["x_rel_m"]) * self._distance_scale(pair_distance))
-                    abs_est = self._known_positions_m[known["id"]] + corrected_delta
-                    if self._monotonic_ok(unknown["id"], abs_est):
-                        self._candidate_abs_x[unknown["id"]].append(float(abs_est))
-                        used_pairs += 1
+                known_id = int(known["id"])
+                next_id = known_id + 1
+                next_obs = obs_by_id.get(next_id)
+                if next_obs is None:
+                    continue
+                pair_distance = (known["distance_m"] + next_obs["distance_m"]) / 2.0
+                if not self._distance_is_acceptable(pair_distance):
+                    rejected_by_distance += 1
+                    continue
+                corrected_delta = abs(next_obs["x_rel_m"] - known["x_rel_m"])
+                if corrected_delta <= 1e-4:
+                    continue
+                abs_est = self._known_positions_m[known_id] + corrected_delta
+                if self._monotonic_ok(next_id, abs_est):
+                    self._candidate_abs_x[next_id].append(float(abs_est))
+                    self._candidate_abs_x[next_id] = self._candidate_abs_x[next_id][-30:]
+                    used_pairs += 1
 
-            confirmed = [obs["id"] for obs in unknown_obs if self._try_confirm_marker(obs["id"])]
+            candidate_ids = [marker_id for marker_id in self._candidate_abs_x.keys() if marker_id not in self._known_positions_m]
+            confirmed = [marker_id for marker_id in candidate_ids if self._try_confirm_marker(marker_id)]
             if confirmed:
                 confirmed_map = {str(mid): self._known_positions_m[mid] for mid in sorted(set(confirmed))}
                 markers_text = ", ".join(f"id={mid} -> {x_val:.3f} м" for mid, x_val in confirmed_map.items())
@@ -366,19 +405,21 @@ class MockBridgeCalibrationAlgorithm:
                         {},
                     )
                 return "Пара отброшена по дистанции", {}
-            return "Накопление наблюдений для новых маркеров", {}
+            return "Накопление наблюдений для пар id и id+1", {}
 
         if len(known_obs) >= 2:
             a = known_obs[0]
             b = known_obs[-1]
             known_delta = self._known_positions_m[b["id"]] - self._known_positions_m[a["id"]]
             pair_distance = (a["distance_m"] + b["distance_m"]) / 2.0
-            observed_delta = (b["x_rel_m"] - a["x_rel_m"]) * self._distance_scale(pair_distance)
+            if not self._distance_is_acceptable(pair_distance):
+                return "Пара известных маркеров вне рабочего диапазона дистанции", {}
+            observed_delta = abs(b["x_rel_m"] - a["x_rel_m"])
             self._pair_residuals.append(abs(observed_delta - known_delta))
             self._pair_residuals = self._pair_residuals[-80:]
             return "Контроль согласованности известной пары", {}
 
-        return "Ожидание кадра с известным и новым маркером", {}
+        return "Ожидание кадра с парой известный id и новый id+1", {}
 
     def _update_roi_bounds(self, marker_bounds: dict[str, int] | None, frame_size: dict[str, int] | None, calibration_enabled: bool) -> None:
         if not calibration_enabled or not marker_bounds or not frame_size:
@@ -450,13 +491,13 @@ class MockBridgeCalibrationAlgorithm:
             quality = 0.5
 
         marker_positions = {str(mid): round(pos, 4) for mid, pos in sorted(self._known_positions_m.items())}
-        marker_positions = {k: max(0.0, v) for k, v in marker_positions.items()}
+        orientation_text = "normal" if self._axis_orientation_sign > 0 else "reversed"
         condition_met = len(visible_ids) >= 2 and marker_size_px > 0
         roi_preview = self._build_roi_preview()
         return BridgeCalibrationResult(
             xy_calib_marker_size_px=marker_size_px,
             xy_calib_new_marker_xpose=int(self._x_pose_m * 100),
-            crane_x_m=round(max(0.0, self._x_pose_m), 3),
+            crane_x_m=round(self._x_pose_m, 3),
             trolley_y_m=round(avg_distance, 3),
             calib_message=message,
             condition_met=condition_met,
@@ -464,13 +505,20 @@ class MockBridgeCalibrationAlgorithm:
             visible_marker_ids=visible_ids,
             known_marker_count=len(self._known_positions_m),
             calibration_quality=round(quality, 3),
-            movement_direction=self._movement_direction,
+            movement_direction=f"{self._movement_direction}; axis={orientation_text}",
             reference_distance_m=round(self._reference_distance_m, 3) if self._reference_distance_m else None,
-            last_calibrated_markers_m={k: max(0.0, round(v, 4)) for k, v in last_calibrated.items()},
+            last_calibrated_markers_m={k: round(v, 4) for k, v in last_calibrated.items()},
             roi_preview=roi_preview,
         )
 
-    def process_frame(self, frame_bytes: bytes, calibration_enabled: bool, marker_size_mm: int) -> BridgeCalibrationResult:
+    def process_frame(
+        self,
+        frame_bytes: bytes,
+        calibration_enabled: bool,
+        marker_size_mm: int,
+        zero_marker_offset_m: float = 0.0,
+    ) -> BridgeCalibrationResult:
+        self._apply_zero_marker_offset(zero_marker_offset_m)
         frame = self._decode_frame(frame_bytes)
         if frame is not None:
             observations, marker_bounds, frame_size = self._detect_markers(frame, marker_size_mm=marker_size_mm)
@@ -607,4 +655,3 @@ class MockHookCalibrationAlgorithm:
             resolution=f"{width}x{height}",
             calib_message=f"Маркер id={actual_marker_id} обнаружен",
         )
-

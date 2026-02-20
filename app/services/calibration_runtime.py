@@ -73,7 +73,11 @@ class BridgeCalibrationRuntime:
         elif command == "stop":
             self.is_calibration_running = False
 
-    async def tick(self, marker_size_mm: int | None = None) -> dict[str, Any]:
+    async def tick(
+        self,
+        marker_size_mm: int | None = None,
+        zero_marker_offset_m: float = 0.0,
+    ) -> dict[str, Any]:
         if not self._pose_scripts_stopped:
             _enter_calibration_mode()
             self._pose_scripts_stopped = True
@@ -83,6 +87,7 @@ class BridgeCalibrationRuntime:
             frame or b"",
             calibration_enabled=self.is_calibration_running,
             marker_size_mm=marker_size_mm or 100,
+            zero_marker_offset_m=zero_marker_offset_m,
         )
         payload = asdict(result)
         if frame:
