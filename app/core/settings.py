@@ -15,10 +15,14 @@ class Settings:
     data_dir: Path
     config_file: Path
     use_jetson_cameras: bool
+    camera_backend: str  # "jetson" | "rpi5_libcamera"
     bridge_camera_device: str
     hook_camera_device: str
     bridge_camera_pipeline: str
     hook_camera_pipeline: str
+    rpi5_camera_width: int
+    rpi5_camera_height: int
+    rpi5_camera_framerate: str
     modbus_host: str
     modbus_port: int
     modbus_unit_id: int
@@ -45,6 +49,9 @@ def get_settings() -> Settings:
         "yes",
         "on",
     }
+    camera_backend = os.getenv("CRAN_CAMERA_BACKEND", "jetson").strip().lower()
+    if camera_backend not in ("jetson", "rpi5_libcamera"):
+        camera_backend = "jetson"
     return Settings(
         app_name=os.getenv("CRAN_APP_NAME", "CRAN Calibration Console"),
         session_secret=os.getenv("CRAN_SESSION_SECRET", "change-this-in-production"),
@@ -55,10 +62,14 @@ def get_settings() -> Settings:
         data_dir=data_dir,
         config_file=data_dir / "calibration_config.json",
         use_jetson_cameras=use_jetson_cameras,
+        camera_backend=camera_backend,
         bridge_camera_device=os.getenv("CRAN_BRIDGE_CAMERA_DEVICE", "0"),
         hook_camera_device=os.getenv("CRAN_HOOK_CAMERA_DEVICE", "1"),
         bridge_camera_pipeline=os.getenv("CRAN_BRIDGE_CAMERA_PIPELINE", ""),
         hook_camera_pipeline=os.getenv("CRAN_HOOK_CAMERA_PIPELINE", ""),
+        rpi5_camera_width=int(os.getenv("CRAN_RPI5_CAMERA_WIDTH", "1920")),
+        rpi5_camera_height=int(os.getenv("CRAN_RPI5_CAMERA_HEIGHT", "1080")),
+        rpi5_camera_framerate=os.getenv("CRAN_RPI5_CAMERA_FRAMERATE", "10/1"),
         modbus_host=os.getenv("CRAN_MODBUS_HOST", "127.0.0.1"),
         modbus_port=int(os.getenv("CRAN_MODBUS_PORT", "5020")),
         modbus_unit_id=int(os.getenv("CRAN_MODBUS_UNIT_ID", "1")),

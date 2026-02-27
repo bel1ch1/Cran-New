@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Optional
 
 from fastapi.templating import Jinja2Templates
 
@@ -20,12 +21,26 @@ def get_config_store() -> ConfigStore:
     return ConfigStore(settings.config_file)
 
 
+def _make_camera_provider(camera_device: str, gstreamer_pipeline: Optional[str], settings) -> JetsonCameraFrameProvider:
+    kwargs = dict(
+        camera_device=camera_device,
+        gstreamer_pipeline=gstreamer_pipeline or None,
+        backend=settings.camera_backend,
+    )
+    if settings.camera_backend == "rpi5_libcamera":
+        kwargs["width"] = settings.rpi5_camera_width
+        kwargs["height"] = settings.rpi5_camera_height
+        kwargs["framerate"] = settings.rpi5_camera_framerate
+    return JetsonCameraFrameProvider(**kwargs)
+
+
 @lru_cache(maxsize=1)
 def get_bridge_runtime() -> BridgeCalibrationRuntime:
     settings = get_settings()
-    bridge_provider = JetsonCameraFrameProvider(
-        camera_device=settings.bridge_camera_device,
-        gstreamer_pipeline=settings.bridge_camera_pipeline or None,
+    bridge_provider = _make_camera_provider(
+        settings.bridge_camera_device,
+        settings.bridge_camera_pipeline,
+        settings,
     )
     return BridgeCalibrationRuntime(camera_provider=bridge_provider)
 
@@ -33,9 +48,10 @@ def get_bridge_runtime() -> BridgeCalibrationRuntime:
 @lru_cache(maxsize=1)
 def get_hook_runtime() -> HookCalibrationRuntime:
     settings = get_settings()
-    hook_provider = JetsonCameraFrameProvider(
-        camera_device=settings.hook_camera_device,
-        gstreamer_pipeline=settings.hook_camera_pipeline or None,
+    hook_provider = _make_camera_provider(
+        settings.hook_camera_device,
+        settings.hook_camera_pipeline,
+        settings,
     )
     return HookCalibrationRuntime(camera_provider=hook_provider)
 
