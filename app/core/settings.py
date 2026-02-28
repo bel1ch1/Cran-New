@@ -50,7 +50,8 @@ def get_settings() -> Settings:
         "on",
     }
     camera_backend = os.getenv("CRAN_CAMERA_BACKEND", "jetson").strip().lower()
-    if camera_backend not in ("jetson", "rpi5_libcamera"):
+    valid_backends = ("jetson", "rpi5_libcamera", "rpi5_picamera2", "rpi5_v4l2")
+    if camera_backend not in valid_backends:
         camera_backend = "jetson"
     return Settings(
         app_name=os.getenv("CRAN_APP_NAME", "CRAN Calibration Console"),

@@ -13,27 +13,118 @@ uvicorn main:app --reload
 
 ### Запуск на Raspberry Pi 5 с двумя камерами (IMX219)
 
+#### Диагностика камер (рекомендуется запустить сначала)
+
+Запустите диагностический скрипт для проверки доступных методов:
+
+```bash
+python test_rpi_cameras.py
+```
+
+Скрипт проверит все доступные методы доступа к камерам и порекомендует оптимальный.
+
+#### Настройка
+
 1. Убедитесь, что в `/boot/firmware/config.txt` задано: `camera_auto_detect=0`, `dtoverlay=imx219,cam0`, `dtoverlay=imx219`. Перезагрузка после правок обязательна.
 
-2. Узнайте пути камер:
+2. Проверьте доступность камер:
    ```bash
    rpicam-vid --list-cameras
+   # или
+   libcamera-hello --list-cameras
    ```
-   В выводе будут два пути в скобках (например для камер 0 и 1).
+   В выводе будут индексы камер (0, 1) и их пути.
 
-3. Задайте переменные окружения и запустите:
-   ```bash
-   export CRAN_CAMERA_BACKEND=rpi5_libcamera
-   export CRAN_BRIDGE_CAMERA_DEVICE="/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10"
-   export CRAN_HOOK_CAMERA_DEVICE="/base/axi/pcie@1000120000/rp1/i2c@88000/imx219@10"
-   pip install -r requirements.txt
-   uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-   Пути подставьте из своего вывода `--list-cameras` (камера 0 — мост, камера 1 — крюк, или наоборот по вашему выбору).
+3. Выберите один из трех методов доступа к камерам:
+
+#### Метод 1: Picamera2 (РЕКОМЕНДУЕТСЯ)
+Самый надежный и производительный метод для RPi 5:
+
+```bash
+# Установка Picamera2 (если еще не установлена)
+sudo apt install -y python3-picamera2
+
+export CRAN_CAMERA_BACKEND=rpi5_picamera2
+export CRAN_BRIDGE_CAMERA_DEVICE="0"
+export CRAN_HOOK_CAMERA_DEVICE="1"
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+#### Метод 2: libcamera через GStreamer
+Требует установки gstreamer1.0-libcamera:
+
+```bash
+sudo apt install -y gstreamer1.0-libcamera
+
+export CRAN_CAMERA_BACKEND=rpi5_libcamera
+export CRAN_BRIDGE_CAMERA_DEVICE="0"
+export CRAN_HOOK_CAMERA_DEVICE="1"
+# Или используйте полные пути:
+# export CRAN_BRIDGE_CAMERA_DEVICE="/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10"
+# export CRAN_HOOK_CAMERA_DEVICE="/base/axi/pcie@1000120000/rp1/i2c@88000/imx219@10"
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+#### Метод 3: V4L2 (прямой доступ)
+Использует /dev/video* устройства:
+
+```bash
+export CRAN_CAMERA_BACKEND=rpi5_v4l2
+export CRAN_BRIDGE_CAMERA_DEVICE="0"  # /dev/video0
+export CRAN_HOOK_CAMERA_DEVICE="1"    # /dev/video1
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
 4. В браузере откройте `http://<IP-адрес-Pi>:8000`, войдите (admin/admin) и откройте разделы калибровки моста и крюка — там будут потоки с камер.
 
 Опционально: `CRAN_RPI5_CAMERA_WIDTH`, `CRAN_RPI5_CAMERA_HEIGHT`, `CRAN_RPI5_CAMERA_FRAMERATE` (по умолчанию 1920, 1080, 10/1).
+
+#### Решение проблем с камерами на RPi 5
+
+**Проблема: Изображение не выводится / черный экран**
+
+1. Проверьте, что камеры обнаруживаются системой:
+   ```bash
+   rpicam-vid --list-cameras
+   ```
+
+2. Попробуйте разные бэкенды в порядке приоритета:
+   - `rpi5_picamera2` (самый надежный)
+   - `rpi5_v4l2` (прямой доступ)
+   - `rpi5_libcamera` (требует gstreamer1.0-libcamera)
+
+3. Уменьшите разрешение для тестирования:
+   ```bash
+   export CRAN_RPI5_CAMERA_WIDTH=640
+   export CRAN_RPI5_CAMERA_HEIGHT=480
+   ```
+
+4. Проверьте логи приложения на наличие ошибок:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000 --log-level debug
+   ```
+
+5. Убедитесь, что камера не используется другим процессом:
+   ```bash
+   sudo lsof | grep video
+   ```
+
+**Проблема: "Failed to open camera" / "Camera not available"**
+
+- Установите Picamera2: `sudo apt install -y python3-picamera2`
+- Установите GStreamer: `sudo apt install -y gstreamer1.0-libcamera gstreamer1.0-tools`
+- Проверьте права доступа: добавьте пользователя в группу `video`:
+  ```bash
+  sudo usermod -a -G video $USER
+  ```
+  После этого перелогиньтесь.
+
+**Проблема: Работает только одна камера**
+
+Это нормально для libcamera на RPi 5 - в одном процессе может быть открыта только одна камера. Приложение автоматически переключается между камерами при переходе между разделами калибровки моста и крюка.
 
 ## Доступ
 
@@ -46,10 +137,14 @@ uvicorn main:app --reload
 - `CRAN_AUTH_PASSWORD`
 - `CRAN_SESSION_SECRET`
 - `CRAN_USE_JETSON_CAMERAS` (`true/false`)
-- `CRAN_BRIDGE_CAMERA_DEVICE` (по умолчанию `0`, `sensor-id` для моста)
-- `CRAN_HOOK_CAMERA_DEVICE` (по умолчанию `1`, `sensor-id` для крюка)
+- `CRAN_CAMERA_BACKEND` (`jetson`, `rpi5_picamera2`, `rpi5_libcamera`, `rpi5_v4l2`)
+- `CRAN_BRIDGE_CAMERA_DEVICE` (по умолчанию `0`, индекс или путь камеры для моста)
+- `CRAN_HOOK_CAMERA_DEVICE` (по умолчанию `1`, индекс или путь камеры для крюка)
 - `CRAN_BRIDGE_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
 - `CRAN_HOOK_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
+- `CRAN_RPI5_CAMERA_WIDTH` (по умолчанию `1920`)
+- `CRAN_RPI5_CAMERA_HEIGHT` (по умолчанию `1080`)
+- `CRAN_RPI5_CAMERA_FRAMERATE` (по умолчанию `10/1`)
 - `CRAN_MODBUS_HOST` (по умолчанию `127.0.0.1`)
 - `CRAN_MODBUS_PORT` (по умолчанию `5020`)
 - `CRAN_MODBUS_UNIT_ID` (по умолчанию `1`)
