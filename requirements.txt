@@ -6,7 +6,3 @@ numpy
 opencv-contrib-python-headless
 pymodbus
 
-# Optional: For Raspberry Pi 5 with Picamera2 (recommended)
-# Install system package: sudo apt install -y python3-picamera2
-# picamera2
-
