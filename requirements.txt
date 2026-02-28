@@ -5,4 +5,5 @@ python-multipart
 numpy
 opencv-contrib-python-headless
 pymodbus
+picamera2
 
