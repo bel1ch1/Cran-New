@@ -9,32 +9,6 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-По умолчанию приложение слушает `http://127.0.0.1:8000`. Для доступа по сети: `uvicorn main:app --host 0.0.0.0 --port 8000`.
-
-### Запуск на Raspberry Pi 5 с двумя камерами (IMX219)
-
-1. Убедитесь, что в `/boot/firmware/config.txt` задано: `camera_auto_detect=0`, `dtoverlay=imx219,cam0`, `dtoverlay=imx219`. Перезагрузка после правок обязательна.
-
-2. Узнайте пути камер:
-   ```bash
-   rpicam-vid --list-cameras
-   ```
-   В выводе будут два пути в скобках (например для камер 0 и 1).
-
-3. Задайте переменные окружения и запустите:
-   ```bash
-   export CRAN_CAMERA_BACKEND=rpi5_libcamera
-   export CRAN_BRIDGE_CAMERA_DEVICE="/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10"
-   export CRAN_HOOK_CAMERA_DEVICE="/base/axi/pcie@1000120000/rp1/i2c@88000/imx219@10"
-   pip install -r requirements.txt
-   uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-   Пути подставьте из своего вывода `--list-cameras` (камера 0 — мост, камера 1 — крюк, или наоборот по вашему выбору).
-
-4. В браузере откройте `http://<IP-адрес-Pi>:8000`, войдите (admin/admin) и откройте разделы калибровки моста и крюка — там будут потоки с камер.
-
-Опционально: `CRAN_RPI5_CAMERA_WIDTH`, `CRAN_RPI5_CAMERA_HEIGHT`, `CRAN_RPI5_CAMERA_FRAMERATE` (по умолчанию 1920, 1080, 10/1).
-
 ## Доступ
 
 - Логин: `admin`
