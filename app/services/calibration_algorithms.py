@@ -17,15 +17,28 @@ except Exception:
 if CV2_AVAILABLE:
     ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
     ARUCO_PARAM = cv2.aruco.DetectorParameters()
-    DIST_COEFFS = np.array(
-        [[-5.77943360e-02, 1.25239405e00, 2.25441807e-03, 4.35415442e-03, -3.44130987e00]],
+    DIST_COEFFS_0 = np.array(
+        [[0.4874920591831232,-4.367983402103326,0.022145267928667087,0.005696299528595056,16.05682348055553]],
         dtype=np.float32,
     )
-    CAMERA_MATRIX = np.array(
+    CAMERA_MATRIX_0 = np.array(
         [
-            [661.62411664, 0.0, 345.05463892],
-            [0.0, 663.37101748, 215.94757467],
-            [0.0, 0.0, 1.0],
+            [1777.1736924530028,0,728.1015127005423],
+            [0,1763.3337864872312,428.470951113461],
+            [0,0,1]
+        ],
+        dtype=np.float32,
+    )
+
+    DIST_COEFFS_1 = np.array(
+        [[0.04521279344827378,1.409678373039514,-0.02468565468520797,-0.004422468292264288,-8.240736813545414]],
+        dtype=np.float32,
+    )
+    CAMERA_MATRIX_1 = np.array(
+        [
+            [1722.95671623021,0,669.761778236129],
+            [0,1720.2010099877689,221.29462190136044],
+            [0,0,1]
         ],
         dtype=np.float32,
     )
@@ -304,8 +317,8 @@ class MockBridgeCalibrationAlgorithm:
                 _, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
                     corners=corner,
                     markerLength=marker_length_m,
-                    cameraMatrix=CAMERA_MATRIX,
-                    distCoeffs=DIST_COEFFS,
+                    cameraMatrix=CAMERA_MATRIX_0,
+                    distCoeffs=DIST_COEFFS_0,
                 )
             except Exception:
                 continue
@@ -617,8 +630,8 @@ class MockHookCalibrationAlgorithm:
             _, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
                 corners=corner,
                 markerLength=marker_length_m,
-                cameraMatrix=CAMERA_MATRIX,
-                distCoeffs=DIST_COEFFS,
+                cameraMatrix=CAMERA_MATRIX_1,
+                distCoeffs=DIST_COEFFS_1,
             )
         except Exception:
             return HookCalibrationResult(
