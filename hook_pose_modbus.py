@@ -22,23 +22,12 @@ import cv2
 import numpy as np
 from pymodbus.client import ModbusTcpClient
 
+from app.services.camera_intrinsics import load_intrinsics_for_camera
+from app.services.jetson_camera_provider import JetsonCameraFrameProvider
+
 
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
 ARUCO_PARAMS = cv2.aruco.DetectorParameters()
-
-# Default intrinsics (from project calibration).
-DIST_COEFFS = np.array(
-    [[-5.77943360e-02, 1.25239405e00, 2.25441807e-03, 4.35415442e-03, -3.44130987e00]],
-    dtype=np.float32,
-)
-CAMERA_MATRIX = np.array(
-    [
-        [661.62411664, 0.0, 345.05463892],
-        [0.0, 663.37101748, 215.94757467],
-        [0.0, 0.0, 1.0],
-    ],
-    dtype=np.float32,
-)
 
 
 @dataclass
@@ -46,6 +35,8 @@ class HookRuntimeConfig:
     marker_size_mm: int
     marker_id: int
     camera_id: int
+    camera_matrix: np.ndarray
+    dist_coeffs: np.ndarray
 
 
 @dataclass
@@ -86,7 +77,14 @@ def load_hook_runtime_config(config_path: Path) -> HookRuntimeConfig:
     marker_id = int(hook.get("marker_id") or 1)
     camera = hook.get("camera", {})
     camera_id = int(camera.get("camera_id", 1))
-    return HookRuntimeConfig(marker_size_mm=marker_size_mm, marker_id=marker_id, camera_id=camera_id)
+    camera_matrix, dist_coeffs = load_intrinsics_for_camera(camera_id=camera_id, config_path=config_path)
+    return HookRuntimeConfig(
+        marker_size_mm=marker_size_mm,
+        marker_id=marker_id,
+        camera_id=camera_id,
+        camera_matrix=camera_matrix,
+        dist_coeffs=dist_coeffs,
+    )
 
 
 def compute_hook_pose(frame_bgr: np.ndarray, cfg: HookRuntimeConfig) -> HookPoseResult:
@@ -107,8 +105,8 @@ def compute_hook_pose(frame_bgr: np.ndarray, cfg: HookRuntimeConfig) -> HookPose
         _, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
             corners=corner,
             markerLength=marker_length_m,
-            cameraMatrix=CAMERA_MATRIX,
-            distCoeffs=DIST_COEFFS,
+            cameraMatrix=cfg.camera_matrix,
+            distCoeffs=cfg.dist_coeffs,
         )
     except Exception:
         return HookPoseResult(0.0, 0.0, 0.0, cfg.marker_id, False)
@@ -219,17 +217,14 @@ def main() -> int:
     cfg = load_hook_runtime_config(args.config)
     if args.camera_id is not None:
         cfg.camera_id = int(args.camera_id)
+        cfg.camera_matrix, cfg.dist_coeffs = load_intrinsics_for_camera(camera_id=cfg.camera_id, config_path=args.config)
     period_s = 1.0 / max(0.5, float(args.fps))
 
-    if args.use_gstreamer:
-        source = _build_default_pipeline(cfg.camera_id)
-        cap = cv2.VideoCapture(source, cv2.CAP_GSTREAMER)
-    else:
-        cap = cv2.VideoCapture(cfg.camera_id)
-
-    if not cap.isOpened():
-        print(f"[ERROR] Camera open failed (camera_id={cfg.camera_id})", file=sys.stderr)
-        return 2
+    gstreamer_pipeline = _build_default_pipeline(cfg.camera_id) if args.use_gstreamer else None
+    camera_provider = JetsonCameraFrameProvider(
+        camera_device=str(cfg.camera_id),
+        gstreamer_pipeline=gstreamer_pipeline,
+    )
 
     client = ModbusTcpClient(host=args.modbus_host, port=args.modbus_port)
     if not client.connect():
@@ -237,7 +232,7 @@ def main() -> int:
             f"[ERROR] Shared Modbus connect failed ({args.modbus_host}:{args.modbus_port})",
             file=sys.stderr,
         )
-        cap.release()
+        camera_provider.close()
         return 3
 
     print(
@@ -249,14 +244,31 @@ def main() -> int:
     try:
         while not stop["value"]:
             frame_start = time.time()
-            ok, frame = cap.read()
-            if ok and frame is not None:
+            frame_bytes = camera_provider.get_frame_bytes()
+            frame = None
+            if frame_bytes:
+                try:
+                    np_buffer = np.frombuffer(frame_bytes, dtype=np.uint8)
+                    frame = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+                except Exception:
+                    frame = None
+            if frame is not None:
                 try:
                     current_mtime = args.config.stat().st_mtime
                     if current_mtime != config_mtime:
                         cfg = load_hook_runtime_config(args.config)
                         if args.camera_id is not None:
                             cfg.camera_id = int(args.camera_id)
+                            cfg.camera_matrix, cfg.dist_coeffs = load_intrinsics_for_camera(
+                                camera_id=cfg.camera_id,
+                                config_path=args.config,
+                            )
+                        camera_provider.close()
+                        gstreamer_pipeline = _build_default_pipeline(cfg.camera_id) if args.use_gstreamer else None
+                        camera_provider = JetsonCameraFrameProvider(
+                            camera_device=str(cfg.camera_id),
+                            gstreamer_pipeline=gstreamer_pipeline,
+                        )
                         config_mtime = current_mtime
                 except Exception:
                     pass
@@ -277,14 +289,14 @@ def main() -> int:
                 else:
                     print(f"[HOOK] marker id={cfg.marker_id} not found")
             else:
-                print("[WARN] Camera frame read failed")
+                print(f"[WARN] Camera frame read/decode failed (camera_id={cfg.camera_id})")
 
             elapsed = time.time() - frame_start
             if elapsed < period_s:
                 time.sleep(period_s - elapsed)
     finally:
         client.close()
-        cap.release()
+        camera_provider.close()
         print("[INFO] Stopped")
     return 0
 

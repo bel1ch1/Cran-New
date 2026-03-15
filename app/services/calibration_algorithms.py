@@ -15,33 +15,12 @@ except Exception:
     CV2_AVAILABLE = False
 
 if CV2_AVAILABLE:
+    from app.services.camera_intrinsics import load_intrinsics_for_camera
+
     ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
     ARUCO_PARAM = cv2.aruco.DetectorParameters()
-    DIST_COEFFS_0 = np.array(
-        [[0.4874920591831232,-4.367983402103326,0.022145267928667087,0.005696299528595056,16.05682348055553]],
-        dtype=np.float32,
-    )
-    CAMERA_MATRIX_0 = np.array(
-        [
-            [1777.1736924530028,0,728.1015127005423],
-            [0,1763.3337864872312,428.470951113461],
-            [0,0,1]
-        ],
-        dtype=np.float32,
-    )
-
-    DIST_COEFFS_1 = np.array(
-        [[0.04521279344827378,1.409678373039514,-0.02468565468520797,-0.004422468292264288,-8.240736813545414]],
-        dtype=np.float32,
-    )
-    CAMERA_MATRIX_1 = np.array(
-        [
-            [1722.95671623021,0,669.761778236129],
-            [0,1720.2010099877689,221.29462190136044],
-            [0,0,1]
-        ],
-        dtype=np.float32,
-    )
+    CAMERA_MATRIX_0, DIST_COEFFS_0 = load_intrinsics_for_camera(camera_id=0)
+    CAMERA_MATRIX_1, DIST_COEFFS_1 = load_intrinsics_for_camera(camera_id=1)
 
 
 def draw_detected_markers(frame_bytes: bytes) -> bytes:

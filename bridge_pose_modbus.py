@@ -33,23 +33,12 @@ except ImportError:
     from pymodbus.datastore import ModbusDeviceContext as ModbusSlaveContext
 from pymodbus.server import StartTcpServer
 
+from app.services.camera_intrinsics import load_intrinsics_for_camera
+from app.services.jetson_camera_provider import JetsonCameraFrameProvider
+
 
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
 ARUCO_PARAMS = cv2.aruco.DetectorParameters()
-
-# Default intrinsics (from current project calibration).
-DIST_COEFFS = np.array(
-    [[-5.77943360e-02, 1.25239405e00, 2.25441807e-03, 4.35415442e-03, -3.44130987e00]],
-    dtype=np.float32,
-)
-CAMERA_MATRIX = np.array(
-    [
-        [661.62411664, 0.0, 345.05463892],
-        [0.0, 663.37101748, 215.94757467],
-        [0.0, 0.0, 1.0],
-    ],
-    dtype=np.float32,
-)
 
 
 @dataclass
@@ -67,6 +56,8 @@ class BridgeRuntimeConfig:
     marker_positions_m: dict[int, float]
     roi: Roi
     camera_id: int
+    camera_matrix: np.ndarray
+    dist_coeffs: np.ndarray
 
 
 @dataclass
@@ -126,6 +117,7 @@ def load_bridge_runtime_config(config_path: Path) -> BridgeRuntimeConfig:
 
     camera = bridge.get("camera", {})
     camera_id = int(camera.get("camera_id", 0))
+    camera_matrix, dist_coeffs = load_intrinsics_for_camera(camera_id=camera_id, config_path=config_path)
 
     return BridgeRuntimeConfig(
         marker_size_mm=marker_size_mm,
@@ -133,6 +125,8 @@ def load_bridge_runtime_config(config_path: Path) -> BridgeRuntimeConfig:
         marker_positions_m=marker_positions_m,
         roi=roi,
         camera_id=camera_id,
+        camera_matrix=camera_matrix,
+        dist_coeffs=dist_coeffs,
     )
 
 
@@ -169,8 +163,8 @@ def compute_camera_pose(frame_bgr: np.ndarray, cfg: BridgeRuntimeConfig) -> Pose
             _, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
                 corners=global_corner,
                 markerLength=marker_length_m,
-                cameraMatrix=CAMERA_MATRIX,
-                distCoeffs=DIST_COEFFS,
+                cameraMatrix=cfg.camera_matrix,
+                distCoeffs=cfg.dist_coeffs,
             )
         except Exception:
             continue
@@ -179,7 +173,7 @@ def compute_camera_pose(frame_bgr: np.ndarray, cfg: BridgeRuntimeConfig) -> Pose
         z_m = float(tvec_xyz[2])
         marker_center_x = float(np.mean(global_corner[0][:, 0]))
         marker_offset_px = marker_center_x - frame_center_x_px
-        rel_x_m = float((marker_offset_px / float(CAMERA_MATRIX[0, 0])) * z_m)
+        rel_x_m = float((marker_offset_px / float(cfg.camera_matrix[0, 0])) * z_m)
 
         marker_x_m = cfg.marker_positions_m[marker_id]
         if cfg.movement_direction == "right_to_left":
@@ -292,17 +286,14 @@ def main() -> int:
     cfg = load_bridge_runtime_config(args.config)
     if args.camera_id is not None:
         cfg.camera_id = int(args.camera_id)
+        cfg.camera_matrix, cfg.dist_coeffs = load_intrinsics_for_camera(camera_id=cfg.camera_id, config_path=args.config)
     period_s = 1.0 / max(0.5, float(args.fps))
 
-    if args.use_gstreamer:
-        source = _build_default_pipeline(cfg.camera_id)
-        cap = cv2.VideoCapture(source, cv2.CAP_GSTREAMER)
-    else:
-        cap = cv2.VideoCapture(cfg.camera_id)
-
-    if not cap.isOpened():
-        print(f"[ERROR] Camera open failed (camera_id={cfg.camera_id})", file=sys.stderr)
-        return 2
+    gstreamer_pipeline = _build_default_pipeline(cfg.camera_id) if args.use_gstreamer else None
+    camera_provider = JetsonCameraFrameProvider(
+        camera_device=str(cfg.camera_id),
+        gstreamer_pipeline=gstreamer_pipeline,
+    )
 
     min_register_count = args.modbus_base_register + 6
     context, server_thread = start_modbus_server(
@@ -314,7 +305,7 @@ def main() -> int:
     time.sleep(0.2)
     if not server_thread.is_alive():
         print(f"[ERROR] Modbus server failed to start on {args.modbus_host}:{args.modbus_port}", file=sys.stderr)
-        cap.release()
+        camera_provider.close()
         return 3
 
     print(
@@ -327,14 +318,31 @@ def main() -> int:
     try:
         while not stop["value"]:
             frame_start = time.time()
-            ok, frame = cap.read()
-            if ok and frame is not None:
+            frame_bytes = camera_provider.get_frame_bytes()
+            frame = None
+            if frame_bytes:
+                try:
+                    np_buffer = np.frombuffer(frame_bytes, dtype=np.uint8)
+                    frame = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+                except Exception:
+                    frame = None
+            if frame is not None:
                 try:
                     current_mtime = args.config.stat().st_mtime
                     if current_mtime != config_mtime:
                         cfg = load_bridge_runtime_config(args.config)
                         if args.camera_id is not None:
                             cfg.camera_id = int(args.camera_id)
+                            cfg.camera_matrix, cfg.dist_coeffs = load_intrinsics_for_camera(
+                                camera_id=cfg.camera_id,
+                                config_path=args.config,
+                            )
+                        camera_provider.close()
+                        gstreamer_pipeline = _build_default_pipeline(cfg.camera_id) if args.use_gstreamer else None
+                        camera_provider = JetsonCameraFrameProvider(
+                            camera_device=str(cfg.camera_id),
+                            gstreamer_pipeline=gstreamer_pipeline,
+                        )
                         config_mtime = current_mtime
                 except Exception:
                     pass
@@ -354,13 +362,13 @@ def main() -> int:
                 else:
                     print("[POSE] no known marker in ROI")
             else:
-                print("[WARN] Camera frame read failed")
+                print(f"[WARN] Camera frame read/decode failed (camera_id={cfg.camera_id})")
 
             elapsed = time.time() - frame_start
             if elapsed < period_s:
                 time.sleep(period_s - elapsed)
     finally:
-        cap.release()
+        camera_provider.close()
         print("[INFO] Stopped")
     return 0
 

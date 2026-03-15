@@ -4,6 +4,11 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from app.services.camera_intrinsics import (
+    get_default_camera_intrinsics_payload,
+    normalize_camera_intrinsics_payload,
+)
+
 
 class ConfigStore:
     def __init__(self, config_path: Path) -> None:
@@ -50,6 +55,7 @@ class ConfigStore:
                     "calibration_quality": 0.0,
                 },
             },
+            "camera_intrinsics": get_default_camera_intrinsics_payload(),
             "statistics": {
                 "dashboard_url": "http://192.168.0.18:8888/sources/1/dashboards/4",
             },
@@ -100,6 +106,8 @@ class ConfigStore:
             "result",
             {"crane_x_m": None, "trolley_y_m": None, "known_marker_count": 1, "calibration_quality": 0.0},
         )
+
+        payload["camera_intrinsics"] = normalize_camera_intrinsics_payload(payload.get("camera_intrinsics", {}))
 
         payload.setdefault("statistics", {})
         payload["statistics"].setdefault("dashboard_url", "http://192.168.0.18:8888/sources/1/dashboards/4")
