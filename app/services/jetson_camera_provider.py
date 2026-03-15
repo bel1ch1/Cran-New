@@ -58,8 +58,9 @@ class JetsonCameraFrameProvider:
             sensor_id = self._resolve_sensor_id()
             self._picamera2 = Picamera2(sensor_id)
             
+            # Keep camera output in BGR to match OpenCV's native color order.
             config = self._picamera2.create_still_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
+                main={"size": (1920, 1080), "format": "BGR888"},
                 buffer_count=2
             )
             self._picamera2.configure(config)
@@ -98,8 +99,7 @@ class JetsonCameraFrameProvider:
                 try:
                     frame = picam.capture_array()
                     if frame is not None:
-                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                        encoded_ok, encoded = cv2.imencode(".jpg", frame_bgr)
+                        encoded_ok, encoded = cv2.imencode(".jpg", frame)
                         if encoded_ok:
                             return encoded.tobytes()
                 except Exception:
