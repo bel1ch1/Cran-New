@@ -198,6 +198,9 @@ class ConfigStore:
 
     def get_calibration_data(self) -> dict[str, Any]:
         payload = self.load()
+        return self._calibration_data_from_payload(payload)
+
+    def _calibration_data_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         bridge = payload["bridge_calibration"]
         return {
             "marker_positions_m": bridge.get("marker_positions_m", {"0": 0.0}),
@@ -238,5 +241,5 @@ class ConfigStore:
 
             self._mark_updated(payload)
             self._write(payload)
-            return self.get_calibration_data()
+            return self._calibration_data_from_payload(payload)
 
