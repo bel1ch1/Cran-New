@@ -56,7 +56,23 @@ async def xy_marker_settings_get(request: Request):
 @router.get("/calibration-data")
 async def calibration_data(request: Request):
     _require_auth(request)
-    return _store().get_calibration_data()
+    runtime_state = get_bridge_runtime().last_state or {}
+    if not runtime_state:
+        return _store().get_calibration_data()
+
+    stored = _store().get_calibration_data()
+    merged = dict(stored)
+    merged["marker_positions_m"] = runtime_state.get("marker_positions_m") or stored.get("marker_positions_m", {})
+    merged["roi_preview"] = runtime_state.get("roi_preview") or stored.get("roi_preview", {})
+    merged["movement_direction"] = runtime_state.get("movement_direction") or stored.get("movement_direction", "unknown")
+    merged["result"] = dict(stored.get("result", {}))
+    merged["result"]["crane_x_m"] = runtime_state.get("crane_x_m")
+    merged["result"]["trolley_y_m"] = runtime_state.get("trolley_y_m")
+    if runtime_state.get("known_marker_count") is not None:
+        merged["result"]["known_marker_count"] = runtime_state.get("known_marker_count")
+    if runtime_state.get("calibration_quality") is not None:
+        merged["result"]["calibration_quality"] = runtime_state.get("calibration_quality")
+    return merged
 
 
 @router.get("/statistics/modbus-pose")
@@ -95,6 +111,17 @@ async def statistics_modbus_history(request: Request):
 @router.post("/save-calibration")
 async def save_calibration(request: Request):
     _require_auth(request)
+    runtime_state = get_bridge_runtime().last_state or {}
+    if runtime_state:
+        _store().update_bridge_runtime_result(
+            crane_x_m=float(runtime_state.get("crane_x_m") or 0.0),
+            trolley_y_m=float(runtime_state.get("trolley_y_m") or 0.0),
+            known_marker_count=runtime_state.get("known_marker_count"),
+            calibration_quality=runtime_state.get("calibration_quality"),
+            marker_positions_m=runtime_state.get("marker_positions_m"),
+            roi_preview=runtime_state.get("roi_preview"),
+            movement_direction=runtime_state.get("movement_direction"),
+        )
     data = _store().save_bridge_calibration()
     return {"message": "Конфигурационный JSON обновлен", "data": data}
 
@@ -194,15 +221,6 @@ async def bridge_camera_stream(websocket: WebSocket):
             state = await runtime.tick(
                 marker_size_mm=marker_size_mm,
                 zero_marker_offset_m=zero_marker_offset_m,
-            )
-            _store().update_bridge_runtime_result(
-                crane_x_m=state["crane_x_m"],
-                trolley_y_m=state["trolley_y_m"],
-                known_marker_count=state.get("known_marker_count"),
-                calibration_quality=state.get("calibration_quality"),
-                marker_positions_m=state.get("marker_positions_m"),
-                roi_preview=state.get("roi_preview"),
-                movement_direction=state.get("movement_direction"),
             )
 
             if runtime.last_frame_bytes:

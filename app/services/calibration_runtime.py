@@ -58,6 +58,7 @@ class BridgeCalibrationRuntime:
         self.camera_provider = camera_provider or MockCameraFrameProvider()
         self.is_calibration_running = False
         self.last_frame_bytes: bytes = b""
+        self.last_state: dict[str, Any] | None = None
         self._pose_scripts_stopped = False
 
     def handle_command(self, raw_text: str) -> None:
@@ -93,6 +94,7 @@ class BridgeCalibrationRuntime:
         if frame:
             self.last_frame_bytes = draw_roi_overlay(frame, payload.get("roi_preview"))
         payload["is_calibration_running"] = self.is_calibration_running
+        self.last_state = payload
         return payload
 
     def close(self) -> None:

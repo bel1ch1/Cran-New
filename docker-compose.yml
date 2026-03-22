@@ -1,0 +1,126 @@
+services:
+  calibration-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cran_calibration_app
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000
+    environment:
+      CRAN_USE_JETSON_CAMERAS: ${CRAN_USE_JETSON_CAMERAS:-true}
+      CRAN_AUTH_USER: ${CRAN_AUTH_USER:-admin}
+      CRAN_AUTH_PASSWORD: ${CRAN_AUTH_PASSWORD:-admin}
+      CRAN_SESSION_SECRET: ${CRAN_SESSION_SECRET:-change-this-in-production}
+      CRAN_BRIDGE_CAMERA_DEVICE: ${CRAN_BRIDGE_CAMERA_DEVICE:-0}
+      CRAN_HOOK_CAMERA_DEVICE: ${CRAN_HOOK_CAMERA_DEVICE:-1}
+      CRAN_MODBUS_HOST: ${CRAN_MODBUS_HOST:-bridge-supervisor}
+      CRAN_MODBUS_PORT: ${CRAN_MODBUS_PORT:-5020}
+      CRAN_MODBUS_UNIT_ID: ${CRAN_MODBUS_UNIT_ID:-1}
+      CRAN_MODBUS_BRIDGE_BASE_REGISTER: ${CRAN_MODBUS_BRIDGE_BASE_REGISTER:-100}
+      CRAN_MODBUS_HOOK_BASE_REGISTER: ${CRAN_MODBUS_HOOK_BASE_REGISTER:-200}
+      CRAN_PROCESS_CONTROL_MODE: docker
+      CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
+    volumes:
+      - ./data:/app/data
+    devices:
+      - ${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}:${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}
+      - ${CRAN_HOOK_DEVICE_PATH:-/dev/video1}:${CRAN_HOOK_DEVICE_PATH:-/dev/video1}
+    restart: always
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/login', timeout=2).status < 500 else 1)"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    ports:
+      - "${CRAN_APP_PORT:-8000}:8000"
+
+  bridge-supervisor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cran_bridge_supervisor
+    command:
+      [
+        "python",
+        "run_bridge_pose_supervisor.py",
+        "--restart-delay",
+        "${CRAN_BRIDGE_RESTART_DELAY:-1.0}",
+        "--",
+        "--use-gstreamer",
+        "--modbus-host",
+        "0.0.0.0",
+        "--modbus-port",
+        "${CRAN_MODBUS_PORT:-5020}",
+        "--modbus-unit-id",
+        "${CRAN_MODBUS_UNIT_ID:-1}",
+        "--modbus-base-register",
+        "${CRAN_MODBUS_BRIDGE_BASE_REGISTER:-100}"
+      ]
+    environment:
+      CRAN_USE_JETSON_CAMERAS: ${CRAN_USE_JETSON_CAMERAS:-true}
+      CRAN_BRIDGE_CAMERA_DEVICE: ${CRAN_BRIDGE_CAMERA_DEVICE:-0}
+      CRAN_PROCESS_CONTROL_MODE: docker
+      CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
+      CRAN_SUPERVISOR_HEARTBEAT_INTERVAL: ${CRAN_SUPERVISOR_HEARTBEAT_INTERVAL:-2.0}
+    volumes:
+      - ./data:/app/data
+    devices:
+      - ${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}:${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /app/data/runtime/bridge_pose_supervisor.pid"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    ports:
+      - "${CRAN_MODBUS_PORT:-5020}:${CRAN_MODBUS_PORT:-5020}"
+
+  hook-supervisor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cran_hook_supervisor
+    depends_on:
+      - bridge-supervisor
+    command:
+      [
+        "python",
+        "run_hook_pose_supervisor.py",
+        "--restart-delay",
+        "${CRAN_HOOK_RESTART_DELAY:-1.0}",
+        "--",
+        "--use-gstreamer",
+        "--modbus-host",
+        "bridge-supervisor",
+        "--modbus-port",
+        "${CRAN_MODBUS_PORT:-5020}",
+        "--modbus-unit-id",
+        "${CRAN_MODBUS_UNIT_ID:-1}",
+        "--modbus-base-register",
+        "${CRAN_MODBUS_HOOK_BASE_REGISTER:-200}"
+      ]
+    environment:
+      CRAN_USE_JETSON_CAMERAS: ${CRAN_USE_JETSON_CAMERAS:-true}
+      CRAN_HOOK_CAMERA_DEVICE: ${CRAN_HOOK_CAMERA_DEVICE:-1}
+      CRAN_PROCESS_CONTROL_MODE: docker
+      CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
+      CRAN_SUPERVISOR_HEARTBEAT_INTERVAL: ${CRAN_SUPERVISOR_HEARTBEAT_INTERVAL:-2.0}
+    volumes:
+      - ./data:/app/data
+    devices:
+      - ${CRAN_HOOK_DEVICE_PATH:-/dev/video1}:${CRAN_HOOK_DEVICE_PATH:-/dev/video1}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /app/data/runtime/hook_pose_supervisor.pid"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

@@ -10,11 +10,61 @@ from pathlib import Path
 from app.core.settings import get_settings
 
 
+def _preferred_python_executable() -> str:
+    explicit = (os.getenv("CRAN_SUPERVISOR_PYTHON") or os.getenv("CRAN_PYTHON_EXECUTABLE") or "").strip()
+    if explicit:
+        return explicit
+    venv_python = Path("/home/cran/cran/venv/bin/python")
+    if venv_python.exists():
+        return str(venv_python)
+    return sys.executable
+
+
 def _runtime_dir() -> Path:
     settings = get_settings()
     path = settings.data_dir / "runtime"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _lock_file_path() -> Path:
+    settings = get_settings()
+    raw = (os.getenv("CRAN_SUPERVISOR_LOCK_FILE") or "").strip()
+    if raw:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = settings.base_dir / path
+    else:
+        path = settings.data_dir / "runtime" / "calibration.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _is_docker_control_mode() -> bool:
+    mode = (os.getenv("CRAN_PROCESS_CONTROL_MODE") or "auto").strip().lower()
+    if mode == "docker":
+        return True
+    if mode == "pid":
+        return False
+    if os.getenv("CRAN_SUPERVISOR_LOCK_FILE"):
+        return True
+    return Path("/.dockerenv").exists()
+
+
+def _set_calibration_lock() -> None:
+    lock_file = _lock_file_path()
+    try:
+        lock_file.write_text(f"{int(time.time())}:{os.getpid()}\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _clear_calibration_lock() -> None:
+    lock_file = _lock_file_path()
+    try:
+        lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _is_running(pid: int) -> bool:
@@ -80,7 +130,7 @@ def _spawn_supervisor(script_name: str) -> None:
     script_path = settings.base_dir / script_name
     if not script_path.exists():
         return
-    cmd = [sys.executable, str(script_path)]
+    cmd = [_preferred_python_executable(), str(script_path)]
     kwargs: dict = {
         "cwd": str(settings.base_dir),
         "stdout": subprocess.DEVNULL,
@@ -94,6 +144,9 @@ def _spawn_supervisor(script_name: str) -> None:
 
 
 def stop_pose_supervisor_scripts() -> None:
+    _set_calibration_lock()
+    if _is_docker_control_mode():
+        return
     runtime = _runtime_dir()
     pid_files = [
         runtime / "bridge_pose_supervisor.pid",
@@ -106,6 +159,9 @@ def stop_pose_supervisor_scripts() -> None:
 
 
 def ensure_pose_supervisor_scripts_running() -> None:
+    _clear_calibration_lock()
+    if _is_docker_control_mode():
+        return
     runtime = _runtime_dir()
     targets = [
         ("bridge_pose_supervisor.pid", "run_bridge_pose_supervisor.py"),
