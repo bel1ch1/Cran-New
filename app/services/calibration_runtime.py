@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from dataclasses import asdict
 from threading import Lock
 from typing import Any, Protocol
@@ -12,6 +13,7 @@ from app.services.calibration_algorithms import (
     draw_roi_overlay,
 )
 from app.services.external_pose_processes import ensure_pose_supervisor_scripts_running, stop_pose_supervisor_scripts
+from app.services.external_pose_processes import wait_pose_children_released
 
 _POSE_SCRIPTS_STATE_LOCK = Lock()
 _ACTIVE_CALIBRATION_RUNTIMES = 0
@@ -22,6 +24,8 @@ def _enter_calibration_mode() -> None:
     with _POSE_SCRIPTS_STATE_LOCK:
         if _ACTIVE_CALIBRATION_RUNTIMES == 0:
             stop_pose_supervisor_scripts()
+            wait_timeout_s = float(os.getenv("CRAN_POSE_RELEASE_TIMEOUT_S", "5.0"))
+            wait_pose_children_released(timeout_s=wait_timeout_s)
         _ACTIVE_CALIBRATION_RUNTIMES += 1
 
 

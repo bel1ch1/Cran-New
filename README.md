@@ -240,6 +240,7 @@ PID-файлы пишутся в `data/runtime/`.
 - `CRAN_SUPERVISOR_HEARTBEAT_INTERVAL` (период записи heartbeat);
 - `CRAN_SUPERVISOR_RESTART_BACKOFF_MAX` (верхняя граница backoff рестартов);
 - `CRAN_BRIDGE_RESTART_DELAY`, `CRAN_HOOK_RESTART_DELAY` (базовая задержка рестарта);
+- `CRAN_POSE_RELEASE_TIMEOUT_S` (сколько ждать освобождения камер после установки lock, по умолчанию `5.0`);
 - `CRAN_BRIDGE_DEVICE_PATH`, `CRAN_HOOK_DEVICE_PATH` (устройства камеры для Compose, например `/dev/video0`, `/dev/video1`).
 
 ## Проверка стабильности после внедрения

@@ -27,6 +27,14 @@ def _runtime_dir() -> Path:
     return path
 
 
+def _pose_child_pid_files() -> list[Path]:
+    runtime = _runtime_dir()
+    return [
+        runtime / "bridge_pose_modbus.pid",
+        runtime / "hook_pose_modbus.pid",
+    ]
+
+
 def _lock_file_path() -> Path:
     settings = get_settings()
     raw = (os.getenv("CRAN_SUPERVISOR_LOCK_FILE") or "").strip()
@@ -141,6 +149,28 @@ def _spawn_supervisor(script_name: str) -> None:
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
     subprocess.Popen(cmd, **kwargs)
+
+
+def _pose_children_running() -> bool:
+    pid_files = _pose_child_pid_files()
+    if _is_docker_control_mode():
+        # In docker mode PIDs are in another namespace; file presence is the reliable signal.
+        return any(pid_file.exists() for pid_file in pid_files)
+
+    for pid_file in pid_files:
+        pid = _read_pid_from_file(pid_file)
+        if pid is not None and _is_running(pid):
+            return True
+    return False
+
+
+def wait_pose_children_released(timeout_s: float = 5.0) -> bool:
+    deadline = time.time() + max(0.2, timeout_s)
+    while time.time() < deadline:
+        if not _pose_children_running():
+            return True
+        time.sleep(0.1)
+    return not _pose_children_running()
 
 
 def stop_pose_supervisor_scripts() -> None:
