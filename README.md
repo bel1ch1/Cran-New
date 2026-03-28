@@ -51,6 +51,7 @@ docker compose down
 - `CRAN_HOOK_CAMERA_PIPELINE` (опционально, кастомный GStreamer pipeline)
 - `CRAN_MODBUS_HOST` (по умолчанию `127.0.0.1`)
 - `CRAN_MODBUS_PORT` (по умолчанию `5020`)
+- `CRAN_MODBUS_PUBLISHED_PORT` (порт на хосте для публикации Modbus из контейнера; можно изменить при конфликте, например `15020`)
 - `CRAN_MODBUS_UNIT_ID` (по умолчанию `1`)
 - `CRAN_MODBUS_BRIDGE_BASE_REGISTER` (по умолчанию `100`)
 - `CRAN_MODBUS_HOOK_BASE_REGISTER` (по умолчанию `200`)
@@ -207,22 +208,16 @@ PID-файлы пишутся в `data/runtime/`.
   - `data/runtime/bridge_pose_supervisor.heartbeat`,
   - `data/runtime/hook_pose_supervisor.heartbeat`.
 - по умолчанию supervisor использует Python из `/home/cran/cran/venv/bin/python` (если найден).
-- принудительно указать интерпретатор можно через `CRAN_SUPERVISOR_PYTHON` (для автоспавна из app) и `CRAN_CHILD_PYTHON`/`CRAN_PYTHON_EXECUTABLE` (для child-процессов supervisor).
 
 ## Освобождение камер для калибровки
 
-При первом вызове `tick()` в `BridgeCalibrationRuntime` и `HookCalibrationRuntime` приложение вызывает
-`stop_pose_supervisor_scripts()` и останавливает:
+При первом вызове `tick()` в `BridgeCalibrationRuntime` и `HookCalibrationRuntime`
+приложение вызывает `stop_pose_supervisor_scripts()` и создает lock-файл.
+Supervisor-контейнеры реагируют на lock: останавливают child-процессы и освобождают камеры.
 
-- `bridge_pose_supervisor.pid`
-- `hook_pose_supervisor.pid`
-- `bridge_pose_modbus.pid`
-- `hook_pose_modbus.pid`
-
-Это сделано, чтобы процессы калибровки FastAPI могли безопасно захватить камеры.
-
-После завершения калибровки (закрытие runtime/websocket) supervisor-скрипты запускаются автоматически снова.
-Если одновременно запущены bridge и hook калибровки, автозапуск выполняется только после завершения обеих.
+После завершения калибровки (закрытие runtime/websocket) вызывается
+`ensure_pose_supervisor_scripts_running()`, lock удаляется, и supervisor-контейнеры
+снова поднимают child-процессы.
 
 В Docker-режиме используется тот же контракт функций, но через lock-механизм:
 
@@ -234,7 +229,6 @@ PID-файлы пишутся в `data/runtime/`.
 
 ## Переменные окружения для recovery и camera arbitration
 
-- `CRAN_PROCESS_CONTROL_MODE` (`auto`/`pid`/`docker`, для Compose рекомендуется `docker`);
 - `CRAN_SUPERVISOR_LOCK_FILE` (путь к lock-файлу, общий volume для app/supervisors);
 - `CRAN_SUPERVISOR_LOCK_POLL_INTERVAL` (частота опроса lock);
 - `CRAN_SUPERVISOR_HEARTBEAT_INTERVAL` (период записи heartbeat);
