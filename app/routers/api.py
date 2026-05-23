@@ -10,6 +10,8 @@ from app.dependencies import (
     get_bridge_runtime,
     get_config_store,
     get_hook_runtime,
+    merge_bridge_calibration_view,
+    persist_bridge_runtime_to_store,
 )
 from app.schemas.calibration import CommandResponse, XYMarkerSettings, ZMarkerSettings
 from app.services.calibration_runtime import BridgeCalibrationRuntime, HookCalibrationRuntime
@@ -61,6 +63,8 @@ async def _run_calibration_websocket(
     except WebSocketDisconnect:
         return
     finally:
+        if isinstance(runtime, BridgeCalibrationRuntime):
+            persist_bridge_runtime_to_store()
         runtime.detach_stream()
 
 
@@ -96,23 +100,7 @@ async def xy_marker_settings_get(request: Request):
 @router.get("/calibration-data")
 async def calibration_data(request: Request):
     _require_auth(request)
-    runtime_state = get_bridge_runtime().last_state or {}
-    if not runtime_state:
-        return _store().get_calibration_data()
-
-    stored = _store().get_calibration_data()
-    merged = dict(stored)
-    merged["marker_positions_m"] = runtime_state.get("marker_positions_m") or stored.get("marker_positions_m", {})
-    merged["roi_preview"] = runtime_state.get("roi_preview") or stored.get("roi_preview", {})
-    merged["movement_direction"] = runtime_state.get("movement_direction") or stored.get("movement_direction", "unknown")
-    merged["result"] = dict(stored.get("result", {}))
-    merged["result"]["crane_x_m"] = runtime_state.get("crane_x_m")
-    merged["result"]["trolley_y_m"] = runtime_state.get("trolley_y_m")
-    if runtime_state.get("known_marker_count") is not None:
-        merged["result"]["known_marker_count"] = runtime_state.get("known_marker_count")
-    if runtime_state.get("calibration_quality") is not None:
-        merged["result"]["calibration_quality"] = runtime_state.get("calibration_quality")
-    return merged
+    return merge_bridge_calibration_view()
 
 
 @router.get("/statistics/modbus-pose")
@@ -151,17 +139,7 @@ async def statistics_modbus_history(request: Request):
 @router.post("/save-calibration")
 async def save_calibration(request: Request):
     _require_auth(request)
-    runtime_state = get_bridge_runtime().last_state or {}
-    if runtime_state:
-        _store().update_bridge_runtime_result(
-            crane_x_m=float(runtime_state.get("crane_x_m") or 0.0),
-            trolley_y_m=float(runtime_state.get("trolley_y_m") or 0.0),
-            known_marker_count=runtime_state.get("known_marker_count"),
-            calibration_quality=runtime_state.get("calibration_quality"),
-            marker_positions_m=runtime_state.get("marker_positions_m"),
-            roi_preview=runtime_state.get("roi_preview"),
-            movement_direction=runtime_state.get("movement_direction"),
-        )
+    persist_bridge_runtime_to_store()
     data = _store().save_bridge_calibration()
     return {"message": "Конфигурационный JSON обновлен", "data": data}
 

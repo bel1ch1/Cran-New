@@ -550,14 +550,42 @@
         });
 
         // Функция завершения калибровки
-        finishCalibrationBtn.addEventListener('click', function() {
-            calibrationActive = false;
+        finishCalibrationBtn.addEventListener('click', async function() {
+            finishCalibrationBtn.disabled = true;
+            updateSystemStatus('Сохранение результатов...', false, true);
 
-            // Остановка видеопотока
-            stopVideoStream();
+            try {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "start_calibration",
+                        command: "stop"
+                    }));
+                    await new Promise(resolve => setTimeout(resolve, 250));
+                }
 
-            // Переход на следующую страницу
-            window.location.href = '/calibration-complete'; // Замените на нужный URL
+                stopVideoStream();
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                const response = await fetch('/save-calibration', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Ошибка сохранения калибровки');
+                }
+
+                window.location.href = '/calibration-complete';
+            } catch (error) {
+                console.error('Ошибка завершения калибровки:', error);
+                alert(error.message || 'Не удалось сохранить результаты калибровки');
+                finishCalibrationBtn.disabled = false;
+                updateSystemStatus('Ошибка сохранения', true);
+            }
         });
 
         // Функция запуска видеопотока

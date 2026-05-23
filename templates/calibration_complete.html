@@ -385,7 +385,9 @@
 
         async function loadCalibrationData() {
             try {
-                const response = await fetch('/calibration-data');
+                const response = await fetch('/calibration-data', {
+                    credentials: 'same-origin',
+                });
                 if (!response.ok) {
                     throw new Error('Ошибка загрузки данных');
                 }
@@ -415,6 +417,7 @@
 
                 const response = await fetch('/save-calibration', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: {
                         'Content-Type': 'application/json',
                     }
