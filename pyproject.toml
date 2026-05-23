@@ -1,0 +1,20 @@
+[project]
+name = "cran-calibration"
+version = "0.1.0"
+description = "CRAN FastAPI Calibration App"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "jinja2",
+    "itsdangerous",
+    "python-multipart",
+    "numpy",
+    "opencv-contrib-python-headless",
+    "pymodbus",
+    "picamera2",
+]
+
+[tool.uv]
+# On Raspberry Pi, libcamera/picamera2 come from apt (python3-libcamera).
+# Docker/venv: uv venv --system-site-packages && uv sync --frozen

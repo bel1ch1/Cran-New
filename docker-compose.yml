@@ -7,23 +7,28 @@ services:
     command: >
       uvicorn main:app --host 0.0.0.0 --port 8000
     environment:
-      CRAN_USE_JETSON_CAMERAS: ${CRAN_USE_JETSON_CAMERAS:-true}
-      CRAN_AUTH_USER: ${CRAN_AUTH_USER:-admin}
-      CRAN_AUTH_PASSWORD: ${CRAN_AUTH_PASSWORD:-admin}
       CRAN_SESSION_SECRET: ${CRAN_SESSION_SECRET:-change-this-in-production}
-      CRAN_BRIDGE_CAMERA_DEVICE: ${CRAN_BRIDGE_CAMERA_DEVICE:-0}
-      CRAN_HOOK_CAMERA_DEVICE: ${CRAN_HOOK_CAMERA_DEVICE:-1}
+      CRAN_BRIDGE_CAMERA_DEVICE: ${CRAN_BRIDGE_CAMERA_DEVICE:-/dev/video0}
+      CRAN_HOOK_CAMERA_DEVICE: ${CRAN_HOOK_CAMERA_DEVICE:-/dev/video1}
+      CRAN_CAMERA_BACKEND: ${CRAN_CAMERA_BACKEND:-picamera2}
       CRAN_MODBUS_HOST: ${CRAN_MODBUS_HOST:-bridge-supervisor}
       CRAN_MODBUS_PORT: ${CRAN_MODBUS_PORT:-5020}
       CRAN_MODBUS_UNIT_ID: ${CRAN_MODBUS_UNIT_ID:-1}
       CRAN_MODBUS_BRIDGE_BASE_REGISTER: ${CRAN_MODBUS_BRIDGE_BASE_REGISTER:-100}
       CRAN_MODBUS_HOOK_BASE_REGISTER: ${CRAN_MODBUS_HOOK_BASE_REGISTER:-200}
       CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
+      LIBCAMERA_LOG_LEVELS: ${LIBCAMERA_LOG_LEVELS:-*:WARN}
+      PYTHONPATH: /usr/lib/python3/dist-packages
     volumes:
       - ./data:/app/data
-    devices:
-      - ${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}:${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}
-      - ${CRAN_HOOK_DEVICE_PATH:-/dev/video1}:${CRAN_HOOK_DEVICE_PATH:-/dev/video1}
+      - /run/udev:/run/udev:ro
+    privileged: true
+    ipc: host
+    group_add:
+      - video
+    depends_on:
+      bridge-supervisor:
+        condition: service_started
     restart: always
     healthcheck:
       test:
@@ -39,6 +44,8 @@ services:
       start_period: 20s
     ports:
       - "${CRAN_APP_PORT:-8000}:8000"
+    networks:
+      - cran-net
 
   bridge-supervisor:
     build:
@@ -52,7 +59,6 @@ services:
         "--restart-delay",
         "${CRAN_BRIDGE_RESTART_DELAY:-1.0}",
         "--",
-        "--use-gstreamer",
         "--modbus-host",
         "0.0.0.0",
         "--modbus-port",
@@ -63,14 +69,19 @@ services:
         "${CRAN_MODBUS_BRIDGE_BASE_REGISTER:-100}"
       ]
     environment:
-      CRAN_USE_JETSON_CAMERAS: ${CRAN_USE_JETSON_CAMERAS:-true}
-      CRAN_BRIDGE_CAMERA_DEVICE: ${CRAN_BRIDGE_CAMERA_DEVICE:-0}
+      CRAN_BRIDGE_CAMERA_DEVICE: ${CRAN_BRIDGE_CAMERA_DEVICE:-/dev/video0}
+      CRAN_CAMERA_BACKEND: ${CRAN_CAMERA_BACKEND:-picamera2}
       CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
       CRAN_SUPERVISOR_HEARTBEAT_INTERVAL: ${CRAN_SUPERVISOR_HEARTBEAT_INTERVAL:-2.0}
+      LIBCAMERA_LOG_LEVELS: ${LIBCAMERA_LOG_LEVELS:-*:WARN}
+      PYTHONPATH: /usr/lib/python3/dist-packages
     volumes:
       - ./data:/app/data
-    devices:
-      - ${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}:${CRAN_BRIDGE_DEVICE_PATH:-/dev/video0}
+      - /run/udev:/run/udev:ro
+    privileged: true
+    ipc: host
+    group_add:
+      - video
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "test -s /app/data/runtime/bridge_pose_supervisor.pid"]
@@ -80,6 +91,8 @@ services:
       start_period: 20s
     ports:
       - "${CRAN_MODBUS_PUBLISHED_PORT:-5020}:${CRAN_MODBUS_PORT:-5020}"
+    networks:
+      - cran-net
 
   hook-supervisor:
     build:
@@ -87,7 +100,8 @@ services:
       dockerfile: Dockerfile
     container_name: cran_hook_supervisor
     depends_on:
-      - bridge-supervisor
+      bridge-supervisor:
+        condition: service_started
     command:
       [
         "python",
@@ -95,7 +109,6 @@ services:
         "--restart-delay",
         "${CRAN_HOOK_RESTART_DELAY:-1.0}",
         "--",
-        "--use-gstreamer",
         "--modbus-host",
         "bridge-supervisor",
         "--modbus-port",
@@ -106,14 +119,19 @@ services:
         "${CRAN_MODBUS_HOOK_BASE_REGISTER:-200}"
       ]
     environment:
-      CRAN_USE_JETSON_CAMERAS: ${CRAN_USE_JETSON_CAMERAS:-true}
-      CRAN_HOOK_CAMERA_DEVICE: ${CRAN_HOOK_CAMERA_DEVICE:-1}
+      CRAN_HOOK_CAMERA_DEVICE: ${CRAN_HOOK_CAMERA_DEVICE:-/dev/video1}
+      CRAN_CAMERA_BACKEND: ${CRAN_CAMERA_BACKEND:-picamera2}
       CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
       CRAN_SUPERVISOR_HEARTBEAT_INTERVAL: ${CRAN_SUPERVISOR_HEARTBEAT_INTERVAL:-2.0}
+      LIBCAMERA_LOG_LEVELS: ${LIBCAMERA_LOG_LEVELS:-*:WARN}
+      PYTHONPATH: /usr/lib/python3/dist-packages
     volumes:
       - ./data:/app/data
-    devices:
-      - ${CRAN_HOOK_DEVICE_PATH:-/dev/video1}:${CRAN_HOOK_DEVICE_PATH:-/dev/video1}
+      - /run/udev:/run/udev:ro
+    privileged: true
+    ipc: host
+    group_add:
+      - video
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "test -s /app/data/runtime/hook_pose_supervisor.pid"]
@@ -121,3 +139,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - cran-net
+
+networks:
+  cran-net:
+    driver: bridge

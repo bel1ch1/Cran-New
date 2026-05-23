@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hook marker pose runtime for Jetson Nano.
+Hook marker pose runtime.
 
 Reads `data/calibration_config.json` (hook_calibration), detects target ArUco marker,
 computes distance and marker offsets, then writes values to shared Modbus TCP server.
@@ -11,10 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import signal
-import struct
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,11 +20,15 @@ import numpy as np
 from pymodbus.client import ModbusTcpClient
 
 from app.services.camera_intrinsics import load_intrinsics_for_camera
-from app.services.jetson_camera_provider import JetsonCameraFrameProvider
-
-
-ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
-ARUCO_PARAMS = cv2.aruco.DetectorParameters()
+from app.services.pose_modbus_common import (
+    add_common_pose_args,
+    apply_camera_id_override,
+    pose_period_seconds,
+    refresh_config_after_reload,
+    run_timed_pose_loop,
+)
+from app.services.pose_runtime_common import PoseCameraSession, detect_markers, install_stop_handlers
+from app.services.pymodbus_compat import float_to_holding_registers, write_registers_compat
 
 
 @dataclass
@@ -46,28 +47,6 @@ class HookPoseResult:
     deviation_y_px: float
     marker_id: int
     valid: bool
-
-
-def _float_to_holding_registers(value: float) -> tuple[int, int]:
-    packed = struct.pack(">f", float(value))
-    return struct.unpack(">HH", packed)
-
-
-def _build_default_pipeline(sensor_id: int) -> str:
-    return (
-        f"nvarguscamerasrc sensor-id={sensor_id} ! "
-        "video/x-raw(memory:NVMM), width=1280, height=720, framerate=30/1 ! "
-        "nvvidconv ! video/x-raw, format=BGRx ! "
-        "videoconvert ! video/x-raw, format=BGR ! "
-        "appsink drop=1"
-    )
-
-
-def _detect_markers(gray_frame: np.ndarray):
-    if hasattr(cv2.aruco, "ArucoDetector"):
-        detector = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
-        return detector.detectMarkers(gray_frame)
-    return cv2.aruco.detectMarkers(gray_frame, ARUCO_DICT, parameters=ARUCO_PARAMS)
 
 
 def load_hook_runtime_config(config_path: Path) -> HookRuntimeConfig:
@@ -90,7 +69,7 @@ def load_hook_runtime_config(config_path: Path) -> HookRuntimeConfig:
 def compute_hook_pose(frame_bgr: np.ndarray, cfg: HookRuntimeConfig) -> HookPoseResult:
     height, width = frame_bgr.shape[:2]
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    corners, ids, _ = _detect_markers(gray)
+    corners, ids, _ = detect_markers(gray)
     if ids is None or len(ids) == 0:
         return HookPoseResult(0.0, 0.0, 0.0, cfg.marker_id, False)
 
@@ -135,40 +114,15 @@ def compute_hook_pose(frame_bgr: np.ndarray, cfg: HookRuntimeConfig) -> HookPose
     )
 
 
-def _write_registers_compat(
-    client: ModbusTcpClient,
-    address: int,
-    values: list[int],
-    unit_id: int,
-) -> None:
-    call_variants = [
-        {"address": address, "values": values, "device_id": unit_id},
-        {"address": address, "values": values, "slave": unit_id},
-        {"address": address, "values": values, "unit": unit_id},
-        {"address": address, "values": values},
-    ]
-    last_error: Exception | None = None
-    for kwargs in call_variants:
-        try:
-            client.write_registers(**kwargs)
-            return
-        except TypeError as exc:
-            last_error = exc
-            continue
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("Unable to call write_registers")
-
-
 def write_hook_pose_to_modbus(
     client: ModbusTcpClient,
     unit_id: int,
     base_register: int,
     pose: HookPoseResult,
 ) -> None:
-    d_hi, d_lo = _float_to_holding_registers(pose.distance_m)
-    dx_hi, dx_lo = _float_to_holding_registers(pose.deviation_x_px)
-    dy_hi, dy_lo = _float_to_holding_registers(pose.deviation_y_px)
+    d_hi, d_lo = float_to_holding_registers(pose.distance_m)
+    dx_hi, dx_lo = float_to_holding_registers(pose.deviation_x_px)
+    dy_hi, dy_lo = float_to_holding_registers(pose.deviation_y_px)
     values = [
         d_hi,
         d_lo,
@@ -179,7 +133,7 @@ def write_hook_pose_to_modbus(
         int(max(0, pose.marker_id)),
         1 if pose.valid else 0,
     ]
-    _write_registers_compat(
+    write_registers_compat(
         client=client,
         address=base_register,
         values=values,
@@ -189,41 +143,29 @@ def write_hook_pose_to_modbus(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Hook marker pose publisher to shared Modbus TCP server")
-    parser.add_argument("--config", type=Path, default=Path("data/calibration_config.json"))
-    parser.add_argument("--fps", type=float, default=8.0, help="Processing frequency")
+    add_common_pose_args(parser)
     parser.add_argument("--modbus-host", default="127.0.0.1", help="Shared Modbus server host")
     parser.add_argument("--modbus-port", type=int, default=5020, help="Shared Modbus server port")
-    parser.add_argument("--modbus-unit-id", type=int, default=1)
     parser.add_argument("--modbus-base-register", type=int, default=200)
-    parser.add_argument(
-        "--use-gstreamer",
-        action="store_true",
-        help="Use default nvarguscamerasrc pipeline for Jetson CSI camera",
-    )
-    parser.add_argument("--camera-id", type=int, default=None, help="Override camera_id from config")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    stop = {"value": False}
+    stop = install_stop_handlers()
 
-    def _handle_stop(_sig, _frame) -> None:
-        stop["value"] = True
+    cfg = apply_camera_id_override(
+        load_hook_runtime_config(args.config),
+        camera_id=args.camera_id,
+        config_path=args.config,
+    )
 
-    signal.signal(signal.SIGINT, _handle_stop)
-    signal.signal(signal.SIGTERM, _handle_stop)
-
-    cfg = load_hook_runtime_config(args.config)
-    if args.camera_id is not None:
-        cfg.camera_id = int(args.camera_id)
-        cfg.camera_matrix, cfg.dist_coeffs = load_intrinsics_for_camera(camera_id=cfg.camera_id, config_path=args.config)
-    period_s = 1.0 / max(0.5, float(args.fps))
-
-    gstreamer_pipeline = _build_default_pipeline(cfg.camera_id) if args.use_gstreamer else None
-    camera_provider = JetsonCameraFrameProvider(
-        camera_device=str(cfg.camera_id),
-        gstreamer_pipeline=gstreamer_pipeline,
+    camera = PoseCameraSession(
+        camera_id=cfg.camera_id,
+        use_gstreamer=args.use_gstreamer,
+        config_path=args.config,
+        camera_id_override=args.camera_id,
+        role="hook",
     )
 
     client = ModbusTcpClient(host=args.modbus_host, port=args.modbus_port)
@@ -232,71 +174,51 @@ def main() -> int:
             f"[ERROR] Shared Modbus connect failed ({args.modbus_host}:{args.modbus_port})",
             file=sys.stderr,
         )
-        camera_provider.close()
+        camera.close()
         return 3
 
     print(
-        f"[INFO] Running. camera_id={cfg.camera_id}, target_marker={cfg.marker_id}, "
+        f"[INFO] Running. camera={camera.camera_device}, target_marker={cfg.marker_id}, "
         f"modbus={args.modbus_host}:{args.modbus_port}, base_reg={args.modbus_base_register}"
     )
 
-    config_mtime = args.config.stat().st_mtime
-    try:
-        while not stop["value"]:
-            frame_start = time.time()
-            frame_bytes = camera_provider.get_frame_bytes()
-            frame = None
-            if frame_bytes:
-                try:
-                    np_buffer = np.frombuffer(frame_bytes, dtype=np.uint8)
-                    frame = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
-                except Exception:
-                    frame = None
-            if frame is not None:
-                try:
-                    current_mtime = args.config.stat().st_mtime
-                    if current_mtime != config_mtime:
-                        cfg = load_hook_runtime_config(args.config)
-                        if args.camera_id is not None:
-                            cfg.camera_id = int(args.camera_id)
-                            cfg.camera_matrix, cfg.dist_coeffs = load_intrinsics_for_camera(
-                                camera_id=cfg.camera_id,
-                                config_path=args.config,
-                            )
-                        camera_provider.close()
-                        gstreamer_pipeline = _build_default_pipeline(cfg.camera_id) if args.use_gstreamer else None
-                        camera_provider = JetsonCameraFrameProvider(
-                            camera_device=str(cfg.camera_id),
-                            gstreamer_pipeline=gstreamer_pipeline,
-                        )
-                        config_mtime = current_mtime
-                except Exception:
-                    pass
+    def _loop_body() -> None:
+        nonlocal cfg
+        reloaded = camera.reload_config_if_changed(load_hook_runtime_config)
+        if reloaded is not None:
+            cfg = refresh_config_after_reload(
+                reloaded,
+                camera_id_override=args.camera_id,
+                config_path=args.config,
+            )
+            if args.camera_id is not None:
+                camera.set_camera_id(cfg.camera_id)
 
-                pose = compute_hook_pose(frame, cfg)
-                write_hook_pose_to_modbus(
-                    client=client,
-                    unit_id=args.modbus_unit_id,
-                    base_register=args.modbus_base_register,
-                    pose=pose,
+        frame = camera.read_frame()
+        if frame is not None:
+            pose = compute_hook_pose(frame, cfg)
+            write_hook_pose_to_modbus(
+                client=client,
+                unit_id=args.modbus_unit_id,
+                base_register=args.modbus_base_register,
+                pose=pose,
+            )
+
+            if pose.valid:
+                print(
+                    f"[HOOK] marker={pose.marker_id} distance={pose.distance_m:.4f}m "
+                    f"dx={pose.deviation_x_px:.2f}px dy={pose.deviation_y_px:.2f}px"
                 )
-
-                if pose.valid:
-                    print(
-                        f"[HOOK] marker={pose.marker_id} distance={pose.distance_m:.4f}m "
-                        f"dx={pose.deviation_x_px:.2f}px dy={pose.deviation_y_px:.2f}px"
-                    )
-                else:
-                    print(f"[HOOK] marker id={cfg.marker_id} not found")
             else:
-                print(f"[WARN] Camera frame read/decode failed (camera_id={cfg.camera_id})")
+                print(f"[HOOK] marker id={cfg.marker_id} not found")
+        else:
+            print(f"[WARN] Camera frame read/decode failed (device={camera.camera_device})")
 
-            elapsed = time.time() - frame_start
-            if elapsed < period_s:
-                time.sleep(period_s - elapsed)
+    try:
+        run_timed_pose_loop(stop=stop, period_s=pose_period_seconds(args.fps), body=_loop_body)
     finally:
         client.close()
-        camera_provider.close()
+        camera.close()
         print("[INFO] Stopped")
     return 0
 

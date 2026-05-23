@@ -1,12 +1,18 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette import status
 
-from app.core.settings import get_settings
 from app.core.security import is_authenticated
-from app.dependencies import get_bridge_runtime, get_config_store, get_hook_runtime
+from app.core.settings import get_settings
+from app.dependencies import (
+    get_bridge_runtime,
+    get_config_store,
+    get_hook_runtime,
+)
 from app.schemas.calibration import CommandResponse, XYMarkerSettings, ZMarkerSettings
+from app.services.calibration_runtime import BridgeCalibrationRuntime, HookCalibrationRuntime
 from app.services.config_store import ConfigStore
 from app.services.control_service import get_command_message
 from app.services.influx_pose_reader import InfluxPoseConfig, read_pose_history_from_influx
@@ -22,6 +28,40 @@ def _require_auth(request: Request) -> None:
 
 def _store() -> ConfigStore:
     return get_config_store()
+
+
+async def _run_calibration_websocket(
+    websocket: WebSocket,
+    runtime: BridgeCalibrationRuntime | HookCalibrationRuntime,
+    *,
+    state_type: str,
+    build_state: Callable[[], Awaitable[dict]],
+) -> None:
+    await websocket.accept()
+    try:
+        while True:
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=0.05)
+                runtime.handle_command(raw)
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                return
+
+            state = await build_state()
+            if runtime.last_frame_bytes:
+                await websocket.send_bytes(runtime.last_frame_bytes)
+
+            camera_error = getattr(runtime.camera_provider, "last_error", None)
+            if camera_error:
+                state = dict(state)
+                state["camera_error"] = camera_error
+
+            await websocket.send_json({"type": state_type, "data": state})
+    except WebSocketDisconnect:
+        return
+    finally:
+        runtime.detach_stream()
 
 
 @router.post("/z-marker-settings")
@@ -166,72 +206,58 @@ async def control_commands(request: Request):
     return {"command": command, "message": get_command_message(command)}
 
 
+async def _serve_calibration_stream(
+    websocket: WebSocket,
+    *,
+    get_runtime: Callable[[], BridgeCalibrationRuntime | HookCalibrationRuntime],
+    state_type: str,
+    build_state: Callable[[BridgeCalibrationRuntime | HookCalibrationRuntime], Awaitable[dict]],
+) -> None:
+    runtime = get_runtime()
+
+    async def tick_state() -> dict:
+        return await build_state(runtime)
+
+    await _run_calibration_websocket(
+        websocket,
+        runtime,
+        state_type=state_type,
+        build_state=tick_state,
+    )
+
+
 @router.websocket("/ws/calibration/hook")
 @router.websocket("/ws1")
 async def hook_camera_stream(websocket: WebSocket):
-    await websocket.accept()
-    runtime = get_hook_runtime()
-    try:
-        while True:
-            try:
-                raw = await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
-                runtime.handle_command(raw)
-            except asyncio.TimeoutError:
-                pass
-            except WebSocketDisconnect:
-                return
+    async def build_state(runtime: HookCalibrationRuntime) -> dict:
+        hook_settings = _store().get_hook_settings()
+        marker_size_mm = hook_settings.get("marker_size_mm") or 100
+        marker_id = hook_settings.get("marker_id")
+        return await runtime.tick(marker_size_mm=marker_size_mm, marker_id=marker_id)
 
-            hook_settings = _store().get_hook_settings()
-            marker_size_mm = hook_settings.get("marker_size_mm") or 100
-            marker_id = hook_settings.get("marker_id")
-            state = await runtime.tick(marker_size_mm=marker_size_mm, marker_id=marker_id)
-
-            if runtime.last_frame_bytes:
-                await websocket.send_bytes(runtime.last_frame_bytes)
-            await websocket.send_json(
-                {
-                    "type": "calibration_state",
-                    "data": state,
-                }
-            )
-    except WebSocketDisconnect:
-        return
-    finally:
-        runtime.close()
+    await _serve_calibration_stream(
+        websocket,
+        get_runtime=get_hook_runtime,
+        state_type="calibration_state",
+        build_state=build_state,
+    )
 
 
 @router.websocket("/ws/calibration/bridge")
 @router.websocket("/ws3")
 async def bridge_camera_stream(websocket: WebSocket):
-    await websocket.accept()
-    runtime = get_bridge_runtime()
-    try:
-        while True:
-            try:
-                raw = await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
-                runtime.handle_command(raw)
-            except asyncio.TimeoutError:
-                pass
-            except WebSocketDisconnect:
-                return
+    async def build_state(runtime: BridgeCalibrationRuntime) -> dict:
+        bridge_settings = _store().get_bridge_settings()
+        marker_size_mm = bridge_settings.get("marker_size_mm") or 100
+        zero_marker_offset_m = float(bridge_settings.get("zero_marker_offset_m") or 0.0)
+        return await runtime.tick(
+            marker_size_mm=marker_size_mm,
+            zero_marker_offset_m=zero_marker_offset_m,
+        )
 
-            bridge_settings = _store().get_bridge_settings()
-            marker_size_mm = bridge_settings.get("marker_size_mm") or 100
-            zero_marker_offset_m = float(bridge_settings.get("zero_marker_offset_m") or 0.0)
-            state = await runtime.tick(
-                marker_size_mm=marker_size_mm,
-                zero_marker_offset_m=zero_marker_offset_m,
-            )
-
-            if runtime.last_frame_bytes:
-                await websocket.send_bytes(runtime.last_frame_bytes)
-            await websocket.send_json(
-                {
-                    "type": "xy_calibration_state",
-                    "data": state,
-                }
-            )
-    except WebSocketDisconnect:
-        return
-    finally:
-        runtime.close()
+    await _serve_calibration_stream(
+        websocket,
+        get_runtime=get_bridge_runtime,
+        state_type="xy_calibration_state",
+        build_state=build_state,
+    )

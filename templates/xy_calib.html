@@ -561,6 +561,8 @@
         });
 
         // Функция запуска видеопотока
+        let lastFrameBlobUrl = null;
+
         function startVideoStream() {
             try {
                 // Создание WebSocket соединения
@@ -585,8 +587,11 @@
 
                 ws.onmessage = function(event) {
                     if (event.data instanceof Blob) {
-                        const blobUrl = URL.createObjectURL(event.data);
-                        frame.src = blobUrl;
+                        if (lastFrameBlobUrl) {
+                            URL.revokeObjectURL(lastFrameBlobUrl);
+                        }
+                        lastFrameBlobUrl = URL.createObjectURL(event.data);
+                        frame.src = lastFrameBlobUrl;
                         return;
                     }
                     try {
@@ -681,6 +686,11 @@
             // Закрытие WebSocket соединения
             if (ws) {
                 ws.close();
+            }
+
+            if (lastFrameBlobUrl) {
+                URL.revokeObjectURL(lastFrameBlobUrl);
+                lastFrameBlobUrl = null;
             }
 
             videoPlaceholder.style.display = 'block';

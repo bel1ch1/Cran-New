@@ -15,10 +15,9 @@ except Exception:
     CV2_AVAILABLE = False
 
 if CV2_AVAILABLE:
+    from app.services.aruco_common import ARUCO_DICT, ARUCO_PARAM
     from app.services.camera_intrinsics import load_intrinsics_for_camera
 
-    ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
-    ARUCO_PARAM = cv2.aruco.DetectorParameters()
     CAMERA_MATRIX_0, DIST_COEFFS_0 = load_intrinsics_for_camera(camera_id=0)
     CAMERA_MATRIX_1, DIST_COEFFS_1 = load_intrinsics_for_camera(camera_id=1)
 
@@ -53,20 +52,39 @@ def draw_detected_markers(frame_bytes: bytes) -> bytes:
 def draw_roi_overlay(frame_bytes: bytes, roi_preview: dict | None) -> bytes:
     if not CV2_AVAILABLE or not frame_bytes:
         return frame_bytes
+    frame = _decode_jpeg_frame(frame_bytes)
+    if frame is None:
+        return frame_bytes
+    return render_frame_overlay(frame, roi_preview, corners=None, ids=None) or frame_bytes
+
+
+def _decode_jpeg_frame(frame_bytes: bytes):
+    if not CV2_AVAILABLE or not frame_bytes:
+        return None
     try:
         np_buffer = np.frombuffer(frame_bytes, dtype=np.uint8)
-        frame = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
-        if frame is None:
-            return frame_bytes
+        return cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+    except Exception:
+        return None
 
-        gray_scale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = cv2.aruco.detectMarkers(
-            gray_scale_frame,
-            dictionary=ARUCO_DICT,
-            parameters=ARUCO_PARAM,
-        )
-        if ids is not None and len(ids) > 0:
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+
+def _encode_jpeg_frame(frame, quality: int = 75) -> bytes:
+    if frame is None:
+        return b""
+    encoded_ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not encoded_ok:
+        return b""
+    return encoded.tobytes()
+
+
+def render_frame_overlay(frame, roi_preview: dict | None, corners, ids) -> bytes:
+    """Draw detected markers and ROI on a BGR frame without re-running detection."""
+    if not CV2_AVAILABLE or frame is None:
+        return b""
+    try:
+        annotated = frame
+        if ids is not None and len(ids) > 0 and corners is not None:
+            cv2.aruco.drawDetectedMarkers(annotated, corners, ids)
 
         if roi_preview and "padded" in roi_preview:
             padded = roi_preview["padded"]
@@ -75,9 +93,9 @@ def draw_roi_overlay(frame_bytes: bytes, roi_preview: dict | None) -> bytes:
             w = int(padded.get("w", 0))
             h = int(padded.get("h", 0))
             if w > 0 and h > 0:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (50, 220, 50), 2)
+                cv2.rectangle(annotated, (x, y), (x + w, y + h), (50, 220, 50), 2)
                 cv2.putText(
-                    frame,
+                    annotated,
                     "ROI",
                     (x, max(20, y - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -86,13 +104,9 @@ def draw_roi_overlay(frame_bytes: bytes, roi_preview: dict | None) -> bytes:
                     2,
                     cv2.LINE_AA,
                 )
-
-        encoded_ok, encoded = cv2.imencode(".jpg", frame)
-        if not encoded_ok:
-            return frame_bytes
-        return encoded.tobytes()
+        return _encode_jpeg_frame(annotated)
     except Exception:
-        return frame_bytes
+        return b""
 
 
 @dataclass
@@ -169,6 +183,7 @@ class MockBridgeCalibrationAlgorithm:
         self._zero_marker_offset_m: float = 0.0
         self._orientation_votes: deque[int] = deque(maxlen=40)
         self._axis_orientation_sign: int = 1
+        self.last_overlay_jpeg: bytes = b""
 
     def _apply_zero_marker_offset(self, zero_marker_offset_m: float) -> None:
         target = float(zero_marker_offset_m)
@@ -251,15 +266,7 @@ class MockBridgeCalibrationAlgorithm:
         return True
 
     def _decode_frame(self, frame_bytes: bytes):
-        if not CV2_AVAILABLE:
-            return None
-        if not frame_bytes:
-            return None
-        try:
-            np_buffer = np.frombuffer(frame_bytes, dtype=np.uint8)
-            return cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
-        except Exception:
-            return None
+        return _decode_jpeg_frame(frame_bytes)
 
     def _extract_marker_size_px(self, corner) -> float:
         points = corner[0]
@@ -270,9 +277,9 @@ class MockBridgeCalibrationAlgorithm:
             side_lengths.append(float(np.linalg.norm(p2 - p1)))
         return mean(side_lengths)
 
-    def _detect_markers(self, frame, marker_size_mm: int) -> tuple[list[dict], dict[str, int] | None, dict[str, int] | None]:
+    def _detect_markers(self, frame, marker_size_mm: int):
         if not CV2_AVAILABLE or frame is None:
-            return [], None, None
+            return [], None, None, None, None
         frame_height, frame_width = frame.shape[:2]
         gray_scale_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = cv2.aruco.detectMarkers(
@@ -281,7 +288,7 @@ class MockBridgeCalibrationAlgorithm:
             parameters=ARUCO_PARAM,
         )
         if ids is None or len(ids) == 0:
-            return [], None, {"width": int(frame_width), "height": int(frame_height)}
+            return [], None, {"width": int(frame_width), "height": int(frame_height)}, None, None
 
         marker_length_m = max(0.001, float(marker_size_mm) / 1000.0)
         observations: list[dict] = []
@@ -322,7 +329,27 @@ class MockBridgeCalibrationAlgorithm:
 
         bounds = {"min_x": int(min_x), "min_y": int(min_y), "max_x": int(max_x), "max_y": int(max_y)}
         frame_size = {"width": int(frame_width), "height": int(frame_height)}
-        return sorted(observations, key=lambda item: item["id"]), bounds, frame_size
+        return sorted(observations, key=lambda item: item["id"]), bounds, frame_size, corners, ids
+
+    def _prune_stale_candidates(self, visible_ids: list[int]) -> None:
+        visible_set = set(visible_ids)
+        expected = set(self._known_positions_m.keys())
+        for marker_id in list(expected):
+            expected.add(marker_id + 1)
+        for marker_id in list(self._candidate_abs_x.keys()):
+            if marker_id in self._known_positions_m:
+                continue
+            if marker_id in visible_set or marker_id - 1 in expected:
+                continue
+            if not self._candidate_abs_x[marker_id]:
+                del self._candidate_abs_x[marker_id]
+        if len(self._candidate_abs_x) > 48:
+            for marker_id in sorted(self._candidate_abs_x.keys()):
+                if marker_id in self._known_positions_m:
+                    continue
+                del self._candidate_abs_x[marker_id]
+                if len(self._candidate_abs_x) <= 32:
+                    break
 
     def _weight_from_distance(self, distance_m: float) -> float:
         return 1.0 / (0.05 + distance_m * distance_m)
@@ -486,6 +513,7 @@ class MockBridgeCalibrationAlgorithm:
         orientation_text = "normal" if self._axis_orientation_sign > 0 else "reversed"
         condition_met = len(visible_ids) >= 2 and marker_size_px > 0
         roi_preview = self._build_roi_preview()
+        self._prune_stale_candidates(visible_ids)
         return BridgeCalibrationResult(
             xy_calib_marker_size_px=marker_size_px,
             xy_calib_new_marker_xpose=int(self._x_pose_m * 100),
@@ -512,17 +540,27 @@ class MockBridgeCalibrationAlgorithm:
     ) -> BridgeCalibrationResult:
         self._apply_zero_marker_offset(zero_marker_offset_m)
         frame = self._decode_frame(frame_bytes)
+        corners = None
+        ids = None
         if frame is not None:
-            observations, marker_bounds, frame_size = self._detect_markers(frame, marker_size_mm=marker_size_mm)
+            observations, marker_bounds, frame_size, corners, ids = self._detect_markers(
+                frame,
+                marker_size_mm=marker_size_mm,
+            )
         else:
             observations, marker_bounds, frame_size = [], None, None
-        return self._result_from_observations(
+        result = self._result_from_observations(
             observations=observations,
             marker_size_mm=marker_size_mm,
             calibration_enabled=calibration_enabled,
             marker_bounds=marker_bounds,
             frame_size=frame_size,
         )
+        if frame is not None:
+            self.last_overlay_jpeg = render_frame_overlay(frame, result.roi_preview, corners, ids)
+        else:
+            self.last_overlay_jpeg = b""
+        return result
 
 
 class MockHookCalibrationAlgorithm:
