@@ -325,7 +325,13 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="zeroMarkerOffset">Сдвиг нулевого маркера (м)</label>
+                        <label for="referenceMarkerId">ID опорного ArUco маркера (нулевая точка)</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="referenceMarkerId" name="referenceMarkerId" min="0" max="1000" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="zeroMarkerOffset">Сдвиг опорного маркера по X (м)</label>
                         <div class="input-wrapper">
                             <input type="number" id="zeroMarkerOffset" name="zeroMarkerOffset" step="0.001" min="-10000" max="10000" required>
                             <span class="unit">м</span>
@@ -357,6 +363,7 @@
 
 <script>
     const markerInput = document.getElementById('markerSize');
+    const referenceMarkerIdInput = document.getElementById('referenceMarkerId');
     const zeroMarkerOffsetInput = document.getElementById('zeroMarkerOffset');
 
     async function loadCurrentXYSettings() {
@@ -372,6 +379,7 @@
                 markerInput.value = 100;
             }
             zeroMarkerOffsetInput.value = Number(data.zero_marker_offset_m ?? 0).toFixed(3);
+            referenceMarkerIdInput.value = data.reference_marker_id ?? 0;
         } catch (error) {
             console.error('Ошибка загрузки настроек XY:', error);
             markerInput.value = 100;
@@ -385,11 +393,13 @@
         // Получаем данные из формы
         const formData = new FormData(this);
         const markerSize = formData.get('markerSize');
+        const referenceMarkerId = formData.get('referenceMarkerId');
         const zeroMarkerOffset = formData.get('zeroMarkerOffset');
 
         // Создаем объект с данными для отправки
         const calibrationData = {
             marker_size: parseInt(markerSize),
+            reference_marker_id: parseInt(referenceMarkerId),
             zero_marker_offset_m: Number(zeroMarkerOffset)
         };
 

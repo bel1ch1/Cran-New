@@ -39,6 +39,7 @@ class ConfigStore:
             "bridge_calibration": {
                 "marker_size_mm": None,
                 "zero_marker_offset_m": 0.0,
+                "reference_marker_id": 0,
                 "movement_direction": "unknown",
                 "camera": {
                     "camera_id": 0,
@@ -87,12 +88,19 @@ class ConfigStore:
         bridge = payload["bridge_calibration"]
         bridge.setdefault("marker_size_mm", None)
         bridge.setdefault("zero_marker_offset_m", 0.0)
+        bridge.setdefault("reference_marker_id", 0)
         bridge.setdefault("movement_direction", "unknown")
         bridge.setdefault("camera", {"camera_id": 0, "description": "Bridge/Trolley camera"})
         bridge.setdefault("marker_positions_m", {"0": 0.0})
-        if "0" not in bridge["marker_positions_m"] and bridge["marker_positions_m"]:
-            min_id = min(bridge["marker_positions_m"], key=lambda item: int(item))
-            bridge["marker_positions_m"]["0"] = float(bridge["marker_positions_m"][min_id])
+        if bridge["marker_positions_m"]:
+            try:
+                sorted_by_value = sorted(
+                    ((str(k), float(v)) for k, v in bridge["marker_positions_m"].items()),
+                    key=lambda item: item[1],
+                )
+                bridge["marker_positions_m"] = {str(idx): x_m for idx, (_, x_m) in enumerate(sorted_by_value)}
+            except (TypeError, ValueError):
+                pass
         bridge.setdefault("roi_preview", {})
         if "xy_calib_poses" not in bridge:
             legacy_1920 = bridge.pop("xy_calib_poses_1920x1080", {})
@@ -133,11 +141,17 @@ class ConfigStore:
             self._mark_updated(payload)
             self._write(payload)
 
-    def update_bridge_settings(self, marker_size: int, zero_marker_offset_m: float = 0.0) -> None:
+    def update_bridge_settings(
+        self,
+        marker_size: int,
+        zero_marker_offset_m: float = 0.0,
+        reference_marker_id: int = 0,
+    ) -> None:
         with self._lock:
             payload = self._read()
             payload["bridge_calibration"]["marker_size_mm"] = marker_size
             payload["bridge_calibration"]["zero_marker_offset_m"] = float(zero_marker_offset_m)
+            payload["bridge_calibration"]["reference_marker_id"] = int(reference_marker_id)
             self._mark_updated(payload)
             self._write(payload)
 
@@ -156,6 +170,7 @@ class ConfigStore:
         return {
             "marker_size_mm": bridge.get("marker_size_mm"),
             "zero_marker_offset_m": bridge.get("zero_marker_offset_m", 0.0),
+            "reference_marker_id": bridge.get("reference_marker_id", 0),
             "camera": bridge.get("camera", {}),
             "marker_positions_m": bridge.get("marker_positions_m", {"0": 0.0}),
             "roi_preview": bridge.get("roi_preview", {}),
@@ -171,6 +186,7 @@ class ConfigStore:
         marker_positions_m: dict[str, float] | None = None,
         roi_preview: dict[str, Any] | None = None,
         movement_direction: str | None = None,
+        landmark_trust: dict[str, float] | None = None,
     ) -> None:
         with self._lock:
             payload = self._read()
@@ -186,6 +202,8 @@ class ConfigStore:
                 payload["bridge_calibration"]["roi_preview"] = roi_preview
             if movement_direction is not None:
                 payload["bridge_calibration"]["movement_direction"] = movement_direction
+            if landmark_trust is not None:
+                payload["bridge_calibration"]["landmark_trust"] = landmark_trust
             self._mark_updated(payload)
             self._write(payload)
 
@@ -209,6 +227,8 @@ class ConfigStore:
             "roi": bridge.get("roi", {}),
             "movement_direction": bridge.get("movement_direction", "unknown"),
             "zero_marker_offset_m": bridge.get("zero_marker_offset_m", 0.0),
+            "reference_marker_id": bridge.get("reference_marker_id", 0),
+            "landmark_trust": bridge.get("landmark_trust", {}),
             "result": bridge.get("result", {}),
         }
 
@@ -220,7 +240,7 @@ class ConfigStore:
             roi_preview = bridge.get("roi_preview", {})
             if marker_positions:
                 bridge["xy_calib_poses"] = {
-                    f"aruco_{marker_id}": {"x_m": x_pos} for marker_id, x_pos in marker_positions.items()
+                    f"landmark_{slot}": {"x_m": x_pos} for slot, x_pos in marker_positions.items()
                 }
             if roi_preview and isinstance(roi_preview, dict):
                 padded = roi_preview.get("padded", {})
