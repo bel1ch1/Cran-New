@@ -9,6 +9,11 @@ except Exception:
     cv2 = None
 
 try:
+    import numpy as np
+except Exception:
+    np = None
+
+try:
     from picamera2 import Picamera2
 except Exception:
     Picamera2 = None
@@ -244,6 +249,78 @@ class CameraFrameProvider:
             return b""
         self.last_error = None
         return encoded.tobytes()
+
+    def _capture_bgr_with_backend(self, backend: CameraBackend) -> np.ndarray | None:
+        if cv2 is None:
+            self.last_error = "OpenCV недоступен"
+            return None
+
+        if backend == CameraBackend.PICAMERA2:
+            if not self._open_picamera2() or self._picamera2 is None:
+                return None
+            try:
+                frame = self._picamera2.capture_array()
+                if frame is None:
+                    self.last_error = "Picamera2 returned empty frame"
+                    return None
+                self.last_error = None
+                return frame
+            except Exception as exc:
+                self.last_error = f"Picamera2 capture failed: {exc}"
+                self._close_picamera2()
+                return None
+
+        if backend == CameraBackend.V4L2:
+            if not self._open_v4l2() or self._capture is None:
+                return None
+        elif backend in {CameraBackend.GSTREAMER, CameraBackend.JETSON}:
+            if not self._open_gstreamer(backend) or self._capture is None:
+                return None
+        else:
+            return None
+
+        ok, frame = self._capture.read()
+        if not ok or frame is None:
+            self.last_error = f"Capture read failed ({backend.value})"
+            return None
+        self.last_error = None
+        return frame
+
+    def get_frame_bgr(self) -> np.ndarray | None:
+        if cv2 is None:
+            self.last_error = "OpenCV недоступен"
+            return None
+
+        if (
+            self._picamera2 is None
+            and (self._capture is None or not self._capture.isOpened())
+            and time.time() < self._open_retry_after
+        ):
+            return None
+
+        has_libcamera = any(s.backend == CameraBackend.PICAMERA2 for s in self._discovered)
+        legacy_csi = is_legacy_csi_device(self.camera_device)
+        order = resolve_backend_order(
+            self.backend,
+            has_custom_pipeline=bool(self.gstreamer_pipeline),
+            has_libcamera=has_libcamera,
+            legacy_csi=legacy_csi,
+        )
+
+        errors: list[str] = []
+        for backend in order:
+            frame = self._capture_bgr_with_backend(backend)
+            if frame is not None:
+                return frame
+            if self.last_error:
+                errors.append(f"{backend.value}: {self.last_error}")
+            self._reset_capture_handles()
+
+        if errors:
+            self.last_error = "; ".join(errors)
+        elif not self.last_error:
+            self.last_error = "Не удалось получить кадр ни одним backend"
+        return None
 
     def get_frame_bytes(self) -> bytes:
         if cv2 is None:

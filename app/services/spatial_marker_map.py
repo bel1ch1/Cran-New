@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from statistics import mean, pstdev
 
-MIN_TRUST_HITS = int(os.getenv("CRAN_MIN_TRUST_HITS", "7"))
-MAX_TRUST_SIGMA_M = float(os.getenv("CRAN_MAX_TRUST_SIGMA_M", "0.08"))
-MIN_LANDMARK_SEPARATION_M = float(os.getenv("CRAN_MIN_LANDMARK_SEPARATION_M", "0.03"))
-MERGE_TOLERANCE_M = float(os.getenv("CRAN_MERGE_TOLERANCE_M", "0.02"))
-RUNTIME_MATCH_TOLERANCE_M = float(os.getenv("CRAN_RUNTIME_MATCH_TOLERANCE_M", "0.04"))
+from app.services.camera_config import (
+    spatial_max_trust_sigma_m,
+    spatial_merge_tolerance_m,
+    spatial_min_landmark_separation_m,
+    spatial_min_trust_hits,
+    spatial_runtime_match_tolerance_m,
+)
+
 MAX_CANDIDATE_OBSERVATIONS = 30
 
 
@@ -24,7 +26,7 @@ def parse_bridge_axis_sign(movement_direction: str) -> int:
 @dataclass
 class TrustedLandmark:
     x_m: float
-    hits: int = MIN_TRUST_HITS
+    hits: int = field(default_factory=spatial_min_trust_hits)
     trust: float = 1.0
 
 
@@ -94,8 +96,8 @@ class SpatialMarkerMap:
         return sorted(self._trusted, key=lambda item: item.x_m)
 
     def _trust_score(self, hits: int, sigma: float) -> float:
-        hit_ratio = min(1.0, hits / max(1, MIN_TRUST_HITS))
-        sigma_ratio = max(0.0, 1.0 - sigma / max(1e-6, MAX_TRUST_SIGMA_M))
+        hit_ratio = min(1.0, hits / max(1, spatial_min_trust_hits()))
+        sigma_ratio = max(0.0, 1.0 - sigma / max(1e-6, spatial_max_trust_sigma_m()))
         return round(min(1.0, hit_ratio * sigma_ratio), 3)
 
     def _nearest_trusted(self, abs_x_m: float, tolerance: float) -> TrustedLandmark | None:
@@ -110,7 +112,7 @@ class SpatialMarkerMap:
 
     def _nearest_candidate(self, abs_x_m: float) -> tuple[CandidateCluster | None, float]:
         best: CandidateCluster | None = None
-        best_dist = MERGE_TOLERANCE_M
+        best_dist = spatial_merge_tolerance_m()
         for cluster in self._candidates:
             dist = abs(cluster.mean_x - abs_x_m)
             if dist <= best_dist:
@@ -122,18 +124,18 @@ class SpatialMarkerMap:
         for landmark in self._trusted:
             if exclude_x is not None and abs(landmark.x_m - exclude_x) <= 1e-6:
                 continue
-            if abs(landmark.x_m - abs_x_m) < MIN_LANDMARK_SEPARATION_M:
+            if abs(landmark.x_m - abs_x_m) < spatial_min_landmark_separation_m():
                 return True
         return False
 
     def _confirm_cluster(self, cluster: CandidateCluster) -> TrustedLandmark | None:
-        if cluster.hits < MIN_TRUST_HITS:
+        if cluster.hits < spatial_min_trust_hits():
             return None
         sigma = cluster.sigma
-        if sigma > MAX_TRUST_SIGMA_M:
+        if sigma > spatial_max_trust_sigma_m():
             return None
         candidate_x = round(cluster.mean_x, 4)
-        existing = self._nearest_trusted(candidate_x, MIN_LANDMARK_SEPARATION_M)
+        existing = self._nearest_trusted(candidate_x, spatial_min_landmark_separation_m())
         if existing is not None:
             existing.hits = max(existing.hits, cluster.hits)
             existing.trust = self._trust_score(existing.hits, sigma)
@@ -226,24 +228,24 @@ class SpatialMarkerMap:
             slot_map = self.to_marker_positions_m()
             for landmark in confirmed_this_frame:
                 for slot, x_val in slot_map.items():
-                    if abs(x_val - landmark.x_m) <= MERGE_TOLERANCE_M:
+                    if abs(x_val - landmark.x_m) <= spatial_merge_tolerance_m():
                         newly_confirmed[slot] = x_val
                         break
             parts = []
             for slot, x_val in sorted(newly_confirmed.items(), key=lambda item: int(item[0])):
                 trust = next(
-                    (lm.trust for lm in self._trusted if abs(lm.x_m - x_val) <= MERGE_TOLERANCE_M),
+                    (lm.trust for lm in self._trusted if abs(lm.x_m - x_val) <= spatial_merge_tolerance_m()),
                     1.0,
                 )
                 hits = next(
-                    (lm.hits for lm in self._trusted if abs(lm.x_m - x_val) <= MERGE_TOLERANCE_M),
-                    MIN_TRUST_HITS,
+                    (lm.hits for lm in self._trusted if abs(lm.x_m - x_val) <= spatial_merge_tolerance_m()),
+                    spatial_min_trust_hits(),
                 )
                 parts.append(f"Точка {slot}: X={x_val:.3f} м (доверие {hits})")
             return f"Подтверждена точка: {', '.join(parts)}", newly_confirmed
 
         pending = max((c.hits for c in self._candidates), default=0)
-        return f"Накопление наблюдений ({pending}/{MIN_TRUST_HITS})", {}
+        return f"Накопление наблюдений ({pending}/{spatial_min_trust_hits()})", {}
 
     def to_marker_positions_m(self) -> dict[str, float]:
         sorted_landmarks = self._sorted_trusted()
@@ -274,7 +276,7 @@ class SpatialMarkerMap:
             instance._trusted.append(
                 TrustedLandmark(
                     x_m=round(x_m, 6),
-                    hits=MIN_TRUST_HITS,
+                    hits=spatial_min_trust_hits(),
                     trust=1.0,
                 )
             )
@@ -291,10 +293,140 @@ class SpatialMarkerMap:
         axis_sign: int,
         *,
         precomputed_abs: float | None = None,
-        tolerance: float = RUNTIME_MATCH_TOLERANCE_M,
+        tolerance: float | None = None,
     ) -> float | None:
+        tolerance = spatial_runtime_match_tolerance_m() if tolerance is None else tolerance
         abs_x = precomputed_abs if precomputed_abs is not None else camera_x_m + (axis_sign * rel_x_m)
         matched = self._nearest_trusted(abs_x, tolerance)
         if matched is None:
             return None
         return matched.x_m
+
+    @classmethod
+    def create_for_calibration_session(
+        cls,
+        *,
+        reference_marker_id: int,
+        zero_offset_m: float,
+    ) -> SpatialMarkerMap:
+        """Start a calibration session with the reference landmark anchored at zero offset."""
+        instance = cls(
+            reference_marker_id=int(reference_marker_id),
+            zero_marker_offset_m=float(zero_offset_m),
+        )
+        instance._trusted.append(
+            TrustedLandmark(
+                x_m=round(float(zero_offset_m), 6),
+                hits=spatial_min_trust_hits(),
+                trust=1.0,
+            )
+        )
+        instance._trusted.sort(key=lambda item: item.x_m)
+        return instance
+
+
+def _observation_marker_id(obs: dict) -> int:
+    if "id" in obs:
+        return int(obs["id"])
+    return int(obs["marker_id"])
+
+
+def _observation_rel_x_m(obs: dict) -> float:
+    if "x_rel_m" in obs:
+        return float(obs["x_rel_m"])
+    return float(obs["rel_x_m"])
+
+
+def _observation_distance_m(obs: dict) -> float:
+    return float(obs.get("distance_m") or 1.0)
+
+
+def _weight_from_distance(distance_m: float) -> float:
+    return 1.0 / (0.05 + distance_m * distance_m)
+
+
+def _bootstrap_camera_x_hint(
+    observations: list[dict],
+    spatial_map: SpatialMarkerMap,
+    axis_sign: int,
+    match_tolerance_m: float,
+) -> float | None:
+    """Estimate camera X when the reference marker is not visible and there is no prior hint."""
+    trusted = spatial_map.trusted_x_positions()
+    if not trusted or not observations:
+        return None
+
+    candidates: list[float] = []
+    for obs in observations:
+        rel_x_m = _observation_rel_x_m(obs)
+        for landmark_x in trusted:
+            candidates.append(landmark_x - (axis_sign * rel_x_m))
+    if not candidates:
+        return None
+
+    center = float(mean(candidates))
+    inlier_window = max(match_tolerance_m * 2.0, spatial_min_landmark_separation_m())
+    inliers = [value for value in candidates if abs(value - center) <= inlier_window]
+    return float(mean(inliers)) if inliers else center
+
+
+def collect_camera_x_estimates(
+    observations: list[dict],
+    spatial_map: SpatialMarkerMap,
+    *,
+    axis_sign: int,
+    hint_x_m: float | None = None,
+    match_tolerance_m: float | None = None,
+) -> list[tuple[float, float]]:
+    """Return weighted camera-X estimates using spatial landmarks (ArUco ID order not required)."""
+    if match_tolerance_m is None:
+        match_tolerance_m = spatial_runtime_match_tolerance_m()
+    weighted: list[tuple[float, float]] = []
+
+    reference_estimates: list[float] = []
+    for obs in observations:
+        marker_id = _observation_marker_id(obs)
+        if marker_id != spatial_map.reference_marker_id:
+            continue
+        rel_x_m = _observation_rel_x_m(obs)
+        estimate = spatial_map.zero_marker_offset_m - (axis_sign * rel_x_m)
+        reference_estimates.append(estimate)
+        weighted.append((estimate, _weight_from_distance(_observation_distance_m(obs))))
+
+    hint = mean(reference_estimates) if reference_estimates else hint_x_m
+    if hint is None:
+        hint = _bootstrap_camera_x_hint(
+            observations,
+            spatial_map,
+            axis_sign,
+            match_tolerance_m,
+        )
+
+    for obs in observations:
+        marker_id = _observation_marker_id(obs)
+        if marker_id == spatial_map.reference_marker_id:
+            continue
+        if hint is None:
+            continue
+        rel_x_m = _observation_rel_x_m(obs)
+        landmark_x = spatial_map.match_landmark_for_detection(
+            rel_x_m,
+            hint,
+            axis_sign,
+            tolerance=match_tolerance_m,
+        )
+        if landmark_x is None:
+            continue
+        estimate = landmark_x - (axis_sign * rel_x_m)
+        weighted.append((estimate, _weight_from_distance(_observation_distance_m(obs))))
+
+    return weighted
+
+
+def fuse_camera_x_estimate(weighted_estimates: list[tuple[float, float]]) -> float | None:
+    if not weighted_estimates:
+        return None
+    total_weight = sum(weight for _, weight in weighted_estimates)
+    if total_weight <= 0.0:
+        return float(mean(value for value, _ in weighted_estimates))
+    return sum(value * weight for value, weight in weighted_estimates) / total_weight

@@ -10,6 +10,7 @@ import numpy as np
 
 from app.services.aruco_common import ARUCO_DICT, ARUCO_PARAMS
 from app.services.camera_backends import build_jetson_gstreamer_pipeline
+from app.services.camera_config import pose_skip_jpeg
 from app.services.camera_frame_provider import CameraFrameProvider
 from app.services.pose_modbus_common import resolve_pose_camera_device
 
@@ -90,6 +91,11 @@ class PoseCameraSession:
         self.provider = self._create_provider()
 
     def read_frame(self) -> np.ndarray | None:
+        return self.read_frame_bgr()
+
+    def read_frame_bgr(self) -> np.ndarray | None:
+        if pose_skip_jpeg():
+            return self.provider.get_frame_bgr()
         return decode_jpeg_frame(self.provider.get_frame_bytes())
 
     def reload_config_if_changed(
