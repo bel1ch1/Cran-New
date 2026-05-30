@@ -19,12 +19,12 @@ import cv2
 import numpy as np
 from pymodbus.client import ModbusTcpClient
 
+from app.services.camera_config import modbus_hook_base_register, modbus_port, resolve_pose_fps
 from app.services.camera_intrinsics import load_intrinsics_for_camera
 from app.services.pose_modbus_common import (
     add_common_pose_args,
     apply_camera_id_override,
     pose_period_seconds,
-    refresh_config_after_reload,
     run_timed_pose_loop,
     wait_for_modbus_tcp,
     write_runtime_heartbeat,
@@ -147,14 +147,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Hook marker pose publisher to shared Modbus TCP server")
     add_common_pose_args(parser)
     parser.add_argument("--modbus-host", default="127.0.0.1", help="Shared Modbus server host")
-    parser.add_argument("--modbus-port", type=int, default=5020, help="Shared Modbus server port")
-    parser.add_argument("--modbus-base-register", type=int, default=200)
+    parser.add_argument("--modbus-port", type=int, default=modbus_port(), help="Shared Modbus server port")
+    parser.add_argument("--modbus-base-register", type=int, default=modbus_hook_base_register())
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     stop = install_stop_handlers()
+    processing_fps = resolve_pose_fps(args.fps)
 
     cfg = apply_camera_id_override(
         load_hook_runtime_config(args.config),
@@ -197,9 +198,9 @@ def main() -> int:
         nonlocal cfg
         reloaded = camera.reload_config_if_changed(load_hook_runtime_config)
         if reloaded is not None:
-            cfg = refresh_config_after_reload(
+            cfg = apply_camera_id_override(
                 reloaded,
-                camera_id_override=args.camera_id,
+                camera_id=args.camera_id,
                 config_path=args.config,
             )
             if args.camera_id is not None:
@@ -233,7 +234,7 @@ def main() -> int:
         write_runtime_heartbeat(child_heartbeat)
 
     try:
-        run_timed_pose_loop(stop=stop, period_s=pose_period_seconds(args.fps), body=_loop_body)
+        run_timed_pose_loop(stop=stop, period_s=pose_period_seconds(processing_fps), body=_loop_body)
     finally:
         client.close()
         camera.close()
