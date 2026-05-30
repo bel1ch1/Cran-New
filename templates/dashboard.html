@@ -237,6 +237,16 @@
             return value.toFixed(digits);
         }
 
+        function formatMetric(value, digits, valid) {
+            if (typeof value !== 'number' || Number.isNaN(value)) {
+                return '-';
+            }
+            if (!valid) {
+                return '-';
+            }
+            return value.toFixed(digits);
+        }
+
         function pushPoint(buffer, value) {
             if (typeof value !== 'number' || Number.isNaN(value)) {
                 return;
@@ -327,7 +337,10 @@
 
         async function loadHistoryFromInflux() {
             try {
-                const response = await fetch('/statistics/modbus-history', { cache: 'no-store' });
+                const response = await fetch('/statistics/modbus-history', {
+                    cache: 'no-store',
+                    credentials: 'same-origin',
+                });
                 if (!response.ok) {
                     return;
                 }
@@ -345,7 +358,10 @@
         async function pollModbusPose() {
             const statusEl = document.getElementById('poll-status');
             try {
-                const response = await fetch('/statistics/modbus-pose', { cache: 'no-store' });
+                const response = await fetch('/statistics/modbus-pose', {
+                    cache: 'no-store',
+                    credentials: 'same-origin',
+                });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
@@ -353,20 +369,37 @@
                 const bridge = payload.bridge || {};
                 const hook = payload.hook || {};
 
-                document.getElementById('bridge-x').textContent = asNumber(bridge.x_m, 4);
-                document.getElementById('bridge-y').textContent = asNumber(bridge.y_m, 4);
-                document.getElementById('bridge-marker').textContent = bridge.marker_id ?? '-';
+                document.getElementById('bridge-x').textContent = formatMetric(bridge.x_m, 4, bridge.valid);
+                document.getElementById('bridge-y').textContent = formatMetric(bridge.y_m, 4, bridge.valid);
+                document.getElementById('bridge-marker').textContent =
+                    bridge.valid ? String(bridge.marker_id ?? '-') : '-';
 
                 const bridgeValidEl = document.getElementById('bridge-valid');
                 bridgeValidEl.textContent = bridge.valid ? '1' : '0';
                 setValidElement(bridgeValidEl, Boolean(bridge.valid));
-                pushPoint(chartBuffers.bridgeX, bridge.x_m);
-                pushPoint(chartBuffers.bridgeY, bridge.y_m);
+                if (bridge.valid) {
+                    pushPoint(chartBuffers.bridgeX, bridge.x_m);
+                    pushPoint(chartBuffers.bridgeY, bridge.y_m);
+                }
 
-                document.getElementById('hook-distance').textContent = asNumber(hook.distance_m, 4);
-                document.getElementById('hook-dx').textContent = asNumber(hook.deviation_x_px, 2);
-                document.getElementById('hook-dy').textContent = asNumber(hook.deviation_y_px, 2);
-                pushPoint(chartBuffers.hookDistance, hook.distance_m);
+                document.getElementById('hook-distance').textContent = formatMetric(
+                    hook.distance_m,
+                    4,
+                    hook.valid
+                );
+                document.getElementById('hook-dx').textContent = formatMetric(
+                    hook.deviation_x_px,
+                    2,
+                    hook.valid
+                );
+                document.getElementById('hook-dy').textContent = formatMetric(
+                    hook.deviation_y_px,
+                    2,
+                    hook.valid
+                );
+                if (hook.valid) {
+                    pushPoint(chartBuffers.hookDistance, hook.distance_m);
+                }
 
                 const hookValidText = `${hook.marker_id ?? '-'} / ${hook.valid ? 1 : 0}`;
                 const hookMarkerValidEl = document.getElementById('hook-marker-valid');
@@ -375,12 +408,17 @@
                 redrawCharts();
 
                 const now = new Date().toLocaleTimeString();
+                const bridgeLive = Boolean(bridge.valid);
+                const hookLive = Boolean(hook.valid);
                 if (payload.error) {
                     statusEl.textContent = `[${now}] Ошибка Modbus: ${payload.error}`;
                     statusEl.style.color = '#ef9a9a';
-                } else if (payload.connected) {
-                    statusEl.textContent = `[${now}] Modbus подключен`;
+                } else if (payload.connected && (bridgeLive || hookLive)) {
+                    statusEl.textContent = `[${now}] Modbus подключен, данные обновляются`;
                     statusEl.style.color = '#81c784';
+                } else if (payload.connected) {
+                    statusEl.textContent = `[${now}] Modbus подключен, pose не валиден (маркеры не найдены)`;
+                    statusEl.style.color = '#ffb74d';
                 } else {
                     statusEl.textContent = `[${now}] Нет подключения к Modbus`;
                     statusEl.style.color = '#ef9a9a';

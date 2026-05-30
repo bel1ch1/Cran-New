@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pymodbus.datastore import ModbusSequentialDataBlock, ModbusServerContext
 
@@ -19,15 +19,34 @@ except ImportError:
     from pymodbus.datastore import ModbusDeviceContext as ModbusSlaveContext
 from pymodbus.server import StartTcpServer
 
+from app.services.camera_config import (
+    DEFAULT_POSE_FPS,
+    modbus_bridge_base_register,
+    modbus_port,
+    modbus_unit_id,
+)
 from app.services.camera_intrinsics import load_intrinsics_for_camera
+from app.services.pymodbus_compat import (
+    coerce_register_list,
+    float_to_holding_registers,
+    holding_registers_to_float,
+)
 
 ConfigT = TypeVar("ConfigT")
+
+BRIDGE_POSE_REGISTER_COUNT = 6
+HOOK_POSE_REGISTER_COUNT = 8
 
 
 def add_common_pose_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, default=Path("data/calibration_config.json"))
-    parser.add_argument("--fps", type=float, default=8.0, help="Processing frequency")
-    parser.add_argument("--modbus-unit-id", type=int, default=1)
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=DEFAULT_POSE_FPS,
+        help="Processing frequency (overridden by CRAN_POSE_FPS when set)",
+    )
+    parser.add_argument("--modbus-unit-id", type=int, default=modbus_unit_id())
     parser.add_argument(
         "--use-gstreamer",
         action="store_true",
@@ -65,13 +84,27 @@ def apply_camera_id_override(
     return cfg
 
 
-def refresh_config_after_reload(
-    cfg: ConfigT,
-    *,
-    camera_id_override: int | None,
-    config_path: Path,
-) -> ConfigT:
-    return apply_camera_id_override(cfg, camera_id=camera_id_override, config_path=config_path)
+def decode_bridge_pose_registers(regs: list[int]) -> dict[str, Any]:
+    if len(regs) < BRIDGE_POSE_REGISTER_COUNT:
+        raise ValueError(f"Expected at least {BRIDGE_POSE_REGISTER_COUNT} bridge registers")
+    return {
+        "x_m": holding_registers_to_float(regs[0], regs[1]),
+        "y_m": holding_registers_to_float(regs[2], regs[3]),
+        "marker_id": int(regs[4]) & 0xFFFF,
+        "valid": (int(regs[5]) & 0xFFFF) != 0,
+    }
+
+
+def decode_hook_pose_registers(regs: list[int]) -> dict[str, Any]:
+    if len(regs) < HOOK_POSE_REGISTER_COUNT:
+        raise ValueError(f"Expected at least {HOOK_POSE_REGISTER_COUNT} hook registers")
+    return {
+        "distance_m": holding_registers_to_float(regs[0], regs[1]),
+        "deviation_x_px": holding_registers_to_float(regs[2], regs[3]),
+        "deviation_y_px": holding_registers_to_float(regs[4], regs[5]),
+        "marker_id": int(regs[6]) & 0xFFFF,
+        "valid": (int(regs[7]) & 0xFFFF) != 0,
+    }
 
 
 def start_modbus_server(
@@ -110,24 +143,29 @@ def write_bridge_pose_to_modbus_store(
     base_register: int,
     pose,
 ) -> None:
-    from app.services.pymodbus_compat import float_to_holding_registers
+    x_hi, x_lo = float_to_holding_registers(getattr(pose, "camera_x_m", 0.0))
+    y_hi, y_lo = float_to_holding_registers(getattr(pose, "distance_m", 0.0))
+    marker_id = int(getattr(pose, "marker_id", -1) or -1)
+    valid_flag = 1 if bool(getattr(pose, "valid", False)) else 0
+    values = coerce_register_list(
+        [
+            x_hi,
+            x_lo,
+            y_hi,
+            y_lo,
+            max(0, marker_id),
+            valid_flag,
+        ]
+    )
 
-    x_hi, x_lo = float_to_holding_registers(pose.camera_x_m)
-    y_hi, y_lo = float_to_holding_registers(pose.distance_m)
-    values = [
-        x_hi,
-        x_lo,
-        y_hi,
-        y_lo,
-        int(max(0, pose.marker_id)),
-        1 if pose.valid else 0,
-    ]
+    slave_id = int(unit_id)
     try:
-        context[int(unit_id)].setValues(3, base_register, values)
-        return
-    except Exception:
-        pass
-    context[0].setValues(3, base_register, values)
+        slave_context = context[slave_id]
+    except Exception as exc:
+        raise RuntimeError(f"Modbus slave context {slave_id} is not available") from exc
+
+    # fc_as_hex=3 -> holding registers (Holding Register / FC03 map).
+    slave_context.setValues(3, int(base_register), values)
 
 
 def write_runtime_heartbeat(path: Path) -> None:
@@ -165,8 +203,6 @@ def run_timed_pose_loop(
     period_s: float,
     body: Callable[[], None],
 ) -> None:
-    import time
-
     while not stop["value"]:
         frame_start = time.time()
         body()

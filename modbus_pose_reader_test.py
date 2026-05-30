@@ -12,49 +12,20 @@ Reads register map:
 from __future__ import annotations
 
 import argparse
-import struct
 import time
 
 from pymodbus.client import ModbusTcpClient
 
-
-def _registers_to_float(hi: int, lo: int) -> float:
-    packed = struct.pack(">HH", int(hi) & 0xFFFF, int(lo) & 0xFFFF)
-    return struct.unpack(">f", packed)[0]
-
-
-def _read_holding_registers_compat(
-    client: ModbusTcpClient,
-    address: int,
-    count: int,
-    unit_id: int,
-):
-    """
-    Read holding registers with compatibility across pymodbus versions.
-    """
-    call_variants = [
-        {"address": address, "count": count, "device_id": unit_id},
-        {"address": address, "count": count, "slave": unit_id},
-        {"address": address, "count": count, "unit": unit_id},
-        {"address": address, "count": count},
-    ]
-    last_error: Exception | None = None
-    for kwargs in call_variants:
-        try:
-            return client.read_holding_registers(**kwargs)
-        except TypeError as exc:
-            last_error = exc
-            continue
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("Unable to call read_holding_registers")
+from app.services.camera_config import modbus_port, modbus_unit_id
+from app.services.pose_modbus_common import BRIDGE_POSE_REGISTER_COUNT, decode_bridge_pose_registers
+from app.services.pymodbus_compat import read_holding_registers_compat
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Test reader for bridge pose Modbus registers")
     parser.add_argument("--host", default="127.0.0.1", help="Modbus server host")
-    parser.add_argument("--port", type=int, default=5020, help="Modbus server port")
-    parser.add_argument("--unit-id", type=int, default=1, help="Modbus unit/slave id")
+    parser.add_argument("--port", type=int, default=modbus_port(), help="Modbus server port")
+    parser.add_argument("--unit-id", type=int, default=modbus_unit_id(), help="Modbus unit/slave id")
     parser.add_argument("--base-register", type=int, default=100, help="Start address of pose registers")
     parser.add_argument("--interval", type=float, default=0.5, help="Polling interval in seconds")
     parser.add_argument("--once", action="store_true", help="Read only once and exit")
@@ -76,26 +47,23 @@ def main() -> int:
 
     try:
         while True:
-            result = _read_holding_registers_compat(
+            result = read_holding_registers_compat(
                 client=client,
                 address=args.base_register,
-                count=6,
+                count=BRIDGE_POSE_REGISTER_COUNT,
                 unit_id=args.unit_id,
             )
             if result.isError():
                 print(f"[ERROR] Read failed: {result}")
             else:
                 regs = result.registers
-                if len(regs) < 6:
+                if len(regs) < BRIDGE_POSE_REGISTER_COUNT:
                     print(f"[ERROR] Not enough registers returned: {len(regs)}")
                 else:
-                    x_m = _registers_to_float(regs[0], regs[1])
-                    y_m = _registers_to_float(regs[2], regs[3])
-                    marker_id = int(regs[4])
-                    valid = int(regs[5]) != 0
+                    pose = decode_bridge_pose_registers(regs)
                     print(
-                        f"X={x_m:.4f} m | Y={y_m:.4f} m | marker_id={marker_id} | "
-                        f"valid={1 if valid else 0}"
+                        f"X={pose['x_m']:.4f} m | Y={pose['y_m']:.4f} m | "
+                        f"marker_id={pose['marker_id']} | valid={1 if pose['valid'] else 0}"
                     )
                     if args.raw:
                         print(f"  raw_registers={regs}")

@@ -1,42 +1,17 @@
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
 from typing import Any
 
 from pymodbus.client import ModbusTcpClient
 
-
-def _registers_to_float(hi: int, lo: int) -> float:
-    packed = struct.pack(">HH", int(hi) & 0xFFFF, int(lo) & 0xFFFF)
-    return struct.unpack(">f", packed)[0]
-
-
-def _read_holding_registers_compat(
-    client: ModbusTcpClient,
-    address: int,
-    count: int,
-    unit_id: int,
-):
-    call_variants = [
-        {"address": address, "count": count, "slave": unit_id},
-        {"address": address, "count": count, "unit": unit_id},
-        {"address": address, "count": count, "device_id": unit_id},
-        {"address": address, "count": count},
-    ]
-    last_error: Exception | None = None
-    for kwargs in call_variants:
-        try:
-            response = client.read_holding_registers(**kwargs)
-            if response.isError():
-                continue
-            return response
-        except TypeError as exc:
-            last_error = exc
-            continue
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("Unable to call read_holding_registers")
+from app.services.pose_modbus_common import (
+    BRIDGE_POSE_REGISTER_COUNT,
+    HOOK_POSE_REGISTER_COUNT,
+    decode_bridge_pose_registers,
+    decode_hook_pose_registers,
+)
+from app.services.pymodbus_compat import read_holding_registers_compat
 
 
 @dataclass
@@ -60,16 +35,16 @@ def read_pose_values(config: ModbusPoseReaderConfig) -> dict[str, Any]:
         }
 
     try:
-        bridge_resp = _read_holding_registers_compat(
+        bridge_resp = read_holding_registers_compat(
             client=client,
             address=config.bridge_base_register,
-            count=6,
+            count=BRIDGE_POSE_REGISTER_COUNT,
             unit_id=config.unit_id,
         )
-        hook_resp = _read_holding_registers_compat(
+        hook_resp = read_holding_registers_compat(
             client=client,
             address=config.hook_base_register,
-            count=8,
+            count=HOOK_POSE_REGISTER_COUNT,
             unit_id=config.unit_id,
         )
     except Exception as exc:
@@ -93,7 +68,7 @@ def read_pose_values(config: ModbusPoseReaderConfig) -> dict[str, Any]:
 
     bridge_regs = bridge_resp.registers or []
     hook_regs = hook_resp.registers or []
-    if len(bridge_regs) < 6 or len(hook_regs) < 8:
+    if len(bridge_regs) < BRIDGE_POSE_REGISTER_COUNT or len(hook_regs) < HOOK_POSE_REGISTER_COUNT:
         return {
             "connected": True,
             "error": f"Not enough registers bridge={len(bridge_regs)} hook={len(hook_regs)}",
@@ -101,31 +76,23 @@ def read_pose_values(config: ModbusPoseReaderConfig) -> dict[str, Any]:
             "hook": {"valid": False},
         }
 
-    bridge_x_m = _registers_to_float(bridge_regs[0], bridge_regs[1])
-    bridge_y_m = _registers_to_float(bridge_regs[2], bridge_regs[3])
-    bridge_marker_id = int(bridge_regs[4])
-    bridge_valid = int(bridge_regs[5]) != 0
-
-    hook_distance_m = _registers_to_float(hook_regs[0], hook_regs[1])
-    hook_dx_px = _registers_to_float(hook_regs[2], hook_regs[3])
-    hook_dy_px = _registers_to_float(hook_regs[4], hook_regs[5])
-    hook_marker_id = int(hook_regs[6])
-    hook_valid = int(hook_regs[7]) != 0
+    bridge = decode_bridge_pose_registers(bridge_regs)
+    hook = decode_hook_pose_registers(hook_regs)
 
     return {
         "connected": True,
         "error": None,
         "bridge": {
-            "x_m": round(bridge_x_m, 4),
-            "y_m": round(bridge_y_m, 4),
-            "marker_id": bridge_marker_id,
-            "valid": bridge_valid,
+            "x_m": round(float(bridge["x_m"]), 4),
+            "y_m": round(float(bridge["y_m"]), 4),
+            "marker_id": bridge["marker_id"],
+            "valid": bridge["valid"],
         },
         "hook": {
-            "distance_m": round(hook_distance_m, 4),
-            "deviation_x_px": round(hook_dx_px, 2),
-            "deviation_y_px": round(hook_dy_px, 2),
-            "marker_id": hook_marker_id,
-            "valid": hook_valid,
+            "distance_m": round(float(hook["distance_m"]), 4),
+            "deviation_x_px": round(float(hook["deviation_x_px"]), 2),
+            "deviation_y_px": round(float(hook["deviation_y_px"]), 2),
+            "marker_id": hook["marker_id"],
+            "valid": hook["valid"],
         },
     }
