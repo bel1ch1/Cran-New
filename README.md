@@ -76,7 +76,7 @@ git clone <URL-репозитория> /home/cran/Cran-New
 cd /home/cran/Cran-New
 ```
 
-Каталог `data/` создаётся автоматически при первом запуске. Файл `data/calibration_config.json` будет сгенерирован с дефолтными значениями, если его нет.
+Каталог `data/` создаётся автоматически при первом запуске. В git хранится шаблон `data/calibration_config.example.json`; рабочий файл `data/calibration_config.json` создаётся на устройстве (или скопируйте: `cp data/calibration_config.example.json data/calibration_config.json`). Каталог `data/runtime/` не коммитится — там PID, heartbeat и lock.
 
 ### 5. Файл `.env`
 
