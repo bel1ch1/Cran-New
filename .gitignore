@@ -3,3 +3,11 @@ __pycache__
 .__pycache__
 .venv
 /.venv
+
+# Local secrets and environment
+.env
+
+# Runtime state (PIDs, heartbeats, calibration lock)
+data/runtime/*.pid
+data/runtime/*.heartbeat
+data/runtime/calibration.lock
