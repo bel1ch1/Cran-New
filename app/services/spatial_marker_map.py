@@ -14,6 +14,13 @@ RUNTIME_MATCH_TOLERANCE_M = float(os.getenv("CRAN_RUNTIME_MATCH_TOLERANCE_M", "0
 MAX_CANDIDATE_OBSERVATIONS = 30
 
 
+def parse_bridge_axis_sign(movement_direction: str) -> int:
+    """Return +1 for normal axis, -1 for reversed (from calibration movement_direction)."""
+    if "axis=reversed" in str(movement_direction or ""):
+        return -1
+    return 1
+
+
 @dataclass
 class TrustedLandmark:
     x_m: float

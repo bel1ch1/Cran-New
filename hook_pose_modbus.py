@@ -26,6 +26,8 @@ from app.services.pose_modbus_common import (
     pose_period_seconds,
     refresh_config_after_reload,
     run_timed_pose_loop,
+    wait_for_modbus_tcp,
+    write_runtime_heartbeat,
 )
 from app.services.pose_runtime_common import PoseCameraSession, detect_markers, install_stop_handlers
 from app.services.pymodbus_compat import float_to_holding_registers, write_registers_compat
@@ -168,6 +170,14 @@ def main() -> int:
         role="hook",
     )
 
+    if not wait_for_modbus_tcp(args.modbus_host, args.modbus_port, timeout_s=120.0):
+        print(
+            f"[ERROR] Shared Modbus server not ready ({args.modbus_host}:{args.modbus_port})",
+            file=sys.stderr,
+        )
+        camera.close()
+        return 3
+
     client = ModbusTcpClient(host=args.modbus_host, port=args.modbus_port)
     if not client.connect():
         print(
@@ -181,6 +191,7 @@ def main() -> int:
         f"[INFO] Running. camera={camera.camera_device}, target_marker={cfg.marker_id}, "
         f"modbus={args.modbus_host}:{args.modbus_port}, base_reg={args.modbus_base_register}"
     )
+    child_heartbeat = Path("data/runtime/hook_pose_modbus.heartbeat")
 
     def _loop_body() -> None:
         nonlocal cfg
@@ -197,12 +208,18 @@ def main() -> int:
         frame = camera.read_frame()
         if frame is not None:
             pose = compute_hook_pose(frame, cfg)
-            write_hook_pose_to_modbus(
-                client=client,
-                unit_id=args.modbus_unit_id,
-                base_register=args.modbus_base_register,
-                pose=pose,
-            )
+            try:
+                write_hook_pose_to_modbus(
+                    client=client,
+                    unit_id=args.modbus_unit_id,
+                    base_register=args.modbus_base_register,
+                    pose=pose,
+                )
+            except Exception as exc:
+                print(f"[WARN] Modbus write failed: {exc}", file=sys.stderr)
+                if not client.connect():
+                    print("[WARN] Modbus reconnect failed", file=sys.stderr)
+                return
 
             if pose.valid:
                 print(
@@ -213,6 +230,7 @@ def main() -> int:
                 print(f"[HOOK] marker id={cfg.marker_id} not found")
         else:
             print(f"[WARN] Camera frame read/decode failed (device={camera.camera_device})")
+        write_runtime_heartbeat(child_heartbeat)
 
     try:
         run_timed_pose_loop(stop=stop, period_s=pose_period_seconds(args.fps), body=_loop_body)

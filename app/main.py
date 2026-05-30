@@ -6,7 +6,10 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.settings import get_settings
 from app.routers import api, auth, pages
-from app.services.external_pose_processes import ensure_pose_supervisor_scripts_running
+from app.services.calibration_session import (
+    ensure_pose_supervisor_scripts_running,
+    reset_calibration_session_counter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup_sync_pose_mode() -> None:
+        reset_calibration_session_counter()
         is_valid, reason = _is_regular_pose_config_valid(settings.config_file)
         if is_valid:
             # Ensure regular pose loop is active by default after app restarts.

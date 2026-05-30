@@ -1,0 +1,16 @@
+# Generated/managed by ops/watchdog/install.sh
+# Hardware watchdog for CRAN Docker stack.
+
+watchdog-device = /dev/watchdog
+# Must be greater than interval; reboot happens if test-binary fails and timer is not fed.
+watchdog-timeout = __WATCHDOG_TIMEOUT__
+# How often docker_health_guard.sh is executed.
+interval = __WATCHDOG_INTERVAL__
+realtime = yes
+priority = 1
+
+test-binary = /opt/cran/watchdog/docker_health_guard.sh
+
+# Basic host safety checks (disabled during high load on Pi).
+# max-load-1 = 24
+# min-memory = 1

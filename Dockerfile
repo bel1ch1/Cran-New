@@ -57,7 +57,8 @@ RUN uv venv --system-site-packages /app/.venv \
 COPY . /app
 
 # Create runtime directories upfront so shared bind mounts have known paths.
-RUN mkdir -p /app/data/runtime
+RUN mkdir -p /app/data/runtime \
+    && chmod +x /app/scripts/healthcheck_pose_supervisor.sh /app/scripts/healthcheck_influx_writer.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 

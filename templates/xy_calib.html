@@ -603,13 +603,10 @@
                     console.log('WebSocket соединение установлено');
                     streamActive = true;
 
-                    videoPlaceholder.style.display = 'none';
-                    frame.style.display = 'block';
-
                     startStreamBtn.disabled = true;
                     stopStreamBtn.disabled = false;
 
-                    updateSystemStatus('Поиск маркеров...', false, true, true);
+                    updateSystemStatus('Инициализация камеры...', false, true, true);
                     updateUIState();
                 };
 
@@ -620,6 +617,8 @@
                         }
                         lastFrameBlobUrl = URL.createObjectURL(event.data);
                         frame.src = lastFrameBlobUrl;
+                        videoPlaceholder.style.display = 'none';
+                        frame.style.display = 'block';
                         return;
                     }
                     try {
@@ -656,6 +655,10 @@
         // Функция обновления данных калибровки
         function updateCalibrationData(state) {
             const messages = [];
+
+            if (state.camera_error) {
+                updateSystemStatus(`Ошибка камеры: ${state.camera_error}`, true, true);
+            }
 
             if (state.xy_calib_marker_size_px !== undefined) {
                 markerSizeData.textContent = `${state.xy_calib_marker_size_px} px`;

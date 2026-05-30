@@ -1,4 +1,6 @@
 import logging
+import time
+from collections.abc import Callable
 from typing import Optional
 
 try:
@@ -25,6 +27,7 @@ from app.services.camera_backends import (
     resolve_backend_order,
     resolve_source_for_device,
 )
+from app.services.camera_config import camera_open_retry_s, camera_warmup_timeout_s
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,7 @@ class CameraFrameProvider:
         self._active_source: CameraSource | None = None
         self.last_error: str | None = None
         self._discovered = discover_camera_sources()
+        self._open_retry_after = 0.0
 
     def _resolve_sensor_id(self) -> int:
         device, sensor_id = normalize_camera_device(self.camera_device)
@@ -149,7 +153,8 @@ class CameraFrameProvider:
         except Exception as exc:
             self.last_error = f"Picamera2({sensor_id}) failed: {exc}"
             logger.exception("Failed to open Picamera2(%s)", sensor_id)
-            self._picamera2 = None
+            self._close_picamera2()
+            self._open_retry_after = time.time() + camera_open_retry_s()
             return False
 
     def _open_v4l2(self) -> bool:
@@ -245,6 +250,13 @@ class CameraFrameProvider:
             self.last_error = "OpenCV недоступен"
             return b""
 
+        if (
+            self._picamera2 is None
+            and (self._capture is None or not self._capture.isOpened())
+            and time.time() < self._open_retry_after
+        ):
+            return b""
+
         has_libcamera = any(s.backend == CameraBackend.PICAMERA2 for s in self._discovered)
         legacy_csi = is_legacy_csi_device(self.camera_device)
         order = resolve_backend_order(
@@ -283,7 +295,11 @@ class CameraFrameProvider:
     def _close_picamera2(self) -> None:
         if self._picamera2 is not None:
             try:
-                self._picamera2.stop()
+                if getattr(self._picamera2, "started", False):
+                    self._picamera2.stop()
+            except Exception:
+                pass
+            try:
                 self._picamera2.close()
             except Exception:
                 pass
@@ -296,6 +312,18 @@ class CameraFrameProvider:
         self.close()
         self._discovered = discover_camera_sources()
         self.last_error = None
+        self._open_retry_after = 0.0
+
+    def warm_up_until_frame(self, *, is_active: Callable[[], bool]) -> bytes:
+        deadline = time.time() + camera_warmup_timeout_s()
+        retry_delay_s = camera_open_retry_s()
+        while is_active() and time.time() < deadline:
+            self.reset()
+            frame = self.get_frame_bytes()
+            if frame:
+                return frame
+            time.sleep(retry_delay_s)
+        return b""
 
     @property
     def active_backend(self) -> str | None:

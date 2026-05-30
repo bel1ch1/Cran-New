@@ -368,7 +368,9 @@
 
     async function loadCurrentXYSettings() {
         try {
-            const response = await fetch('/xy-marker-settings');
+            const response = await fetch('/xy-marker-settings', {
+                credentials: 'same-origin',
+            });
             if (!response.ok) {
                 throw new Error(`Ошибка загрузки: ${response.status}`);
             }
@@ -408,6 +410,7 @@
         // Отправка данных на бэкенд
         fetch('/xy-marker-settings', {
             method: 'POST',
+            credentials: 'same-origin',
             body: JSON.stringify(calibrationData),
             headers: {
                 'Content-Type': 'application/json'

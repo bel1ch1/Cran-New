@@ -2,11 +2,11 @@
   "meta": {
     "app": "CRAN Calibration Console",
     "version": "1.0.0",
-    "updated_at": "2026-02-20T08:49:49.019619+00:00"
+    "updated_at": "2026-05-30T15:05:17.306289+00:00"
   },
   "hook_calibration": {
     "marker_size_mm": 35,
-    "marker_id": 7,
+    "marker_id": 8,
     "camera": {
       "camera_id": 1,
       "description": "Hook camera"
@@ -14,81 +14,130 @@
   },
   "bridge_calibration": {
     "marker_size_mm": 35,
-    "movement_direction": "left_to_right; axis=normal",
+    "movement_direction": "left_to_right; axis=reversed",
     "camera": {
       "camera_id": 0,
       "description": "Bridge/Trolley camera"
     },
     "xy_calib_poses": {
-      "aruco_1": {
+      "landmark_0": {
         "x_m": 0.0
       },
-      "aruco_2": {
-        "x_m": 0.0619
+      "landmark_1": {
+        "x_m": 0.0623
       },
-      "aruco_3": {
-        "x_m": 0.1243
+      "landmark_2": {
+        "x_m": 0.1168
       },
-      "aruco_4": {
-        "x_m": 0.1883
+      "landmark_3": {
+        "x_m": 0.1727
       },
-      "aruco_5": {
-        "x_m": 0.2477
+      "landmark_4": {
+        "x_m": 0.2333
       },
-      "aruco_6": {
-        "x_m": 0.3062
-      },
-      "aruco_8": {
-        "x_m": 0.3696
+      "landmark_5": {
+        "x_m": 0.287
       }
     },
     "roi": {
       "x": 0,
-      "y": 211,
-      "w": 639,
-      "h": 149
+      "y": 390,
+      "w": 1919,
+      "h": 689
     },
     "result": {
-      "crane_x_m": 0.282,
+      "crane_x_m": 0.213,
       "trolley_y_m": 0.0,
-      "known_marker_count": 9,
+      "known_marker_count": 6,
       "calibration_quality": 0.5
     },
     "marker_positions_m": {
       "0": 0.0,
-      "1": 0.0,
-      "2": 0.065,
-      "3": 0.1264,
-      "4": 0.1892,
-      "5": 0.253,
-      "6": 0.3096,
-      "7": 0.4502,
-      "8": 0.5275
+      "1": 0.0623,
+      "2": 0.1168,
+      "3": 0.1727,
+      "4": 0.2333,
+      "5": 0.287
     },
     "roi_preview": {
       "raw": {
-        "x": 58,
-        "y": 237,
-        "w": 553,
-        "h": 83
+        "x": 3,
+        "y": 448,
+        "w": 1909,
+        "h": 586
       },
       "padded": {
-        "x": 3,
-        "y": 225,
-        "w": 636,
-        "h": 107
+        "x": 0,
+        "y": 390,
+        "w": 1919,
+        "h": 689
       },
       "frame": {
-        "width": 640,
-        "height": 480
+        "width": 1920,
+        "height": 1080
       }
     },
-    "zero_marker_offset_m": 0.0
+    "zero_marker_offset_m": 0.0,
+    "reference_marker_id": 1
   },
   "statistics": {
     "dashboard_url": "http://192.168.0.18:8888/sources/1/dashboards/4"
   },
   "management": {
     "last_command": "restart"
+  },
+  "camera_intrinsics": {
+    "camera_0": {
+      "camera_matrix": [
+        [
+          1759.5451643196482,
+          0,
+          759.0844499851064
+        ],
+        [
+          0,
+          1749.616531023043,
+          235.46847233900277
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "dist_coeffs": [
+        0.06668622890462314,
+        0.6740369333070254,
+        -0.02239890744409157,
+        0.008551901066880528,
+        -3.1282836536539893
+      ]
+    },
+    "camera_1": {
+      "camera_matrix": [
+        [
+          1751.7585483009766,
+          0,
+          736.5449420545249
+        ],
+        [
+          0,
+          1742.482910862439,
+          248.95145390942164
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "dist_coeffs": [
+        0.07964752643577983,
+        0.5411208927538892,
+        -0.01842137076906162,
+        0.009431718517098085,
+        -3.4709927899809325
+      ]
+    }
   }
 }

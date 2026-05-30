@@ -19,15 +19,18 @@ def _read_holding_registers_compat(
     unit_id: int,
 ):
     call_variants = [
-        {"address": address, "count": count, "device_id": unit_id},
         {"address": address, "count": count, "slave": unit_id},
         {"address": address, "count": count, "unit": unit_id},
+        {"address": address, "count": count, "device_id": unit_id},
         {"address": address, "count": count},
     ]
     last_error: Exception | None = None
     for kwargs in call_variants:
         try:
-            return client.read_holding_registers(**kwargs)
+            response = client.read_holding_registers(**kwargs)
+            if response.isError():
+                continue
+            return response
         except TypeError as exc:
             last_error = exc
             continue

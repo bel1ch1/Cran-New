@@ -187,23 +187,30 @@ class ConfigStore:
         roi_preview: dict[str, Any] | None = None,
         movement_direction: str | None = None,
         landmark_trust: dict[str, float] | None = None,
+        reference_marker_id: int | None = None,
+        zero_marker_offset_m: float | None = None,
     ) -> None:
         with self._lock:
             payload = self._read()
-            payload["bridge_calibration"]["result"]["crane_x_m"] = crane_x_m
-            payload["bridge_calibration"]["result"]["trolley_y_m"] = trolley_y_m
+            bridge = payload["bridge_calibration"]
+            bridge["result"]["crane_x_m"] = crane_x_m
+            bridge["result"]["trolley_y_m"] = trolley_y_m
             if known_marker_count is not None:
-                payload["bridge_calibration"]["result"]["known_marker_count"] = known_marker_count
+                bridge["result"]["known_marker_count"] = known_marker_count
             if calibration_quality is not None:
-                payload["bridge_calibration"]["result"]["calibration_quality"] = calibration_quality
+                bridge["result"]["calibration_quality"] = calibration_quality
             if marker_positions_m is not None:
-                payload["bridge_calibration"]["marker_positions_m"] = marker_positions_m
+                bridge["marker_positions_m"] = marker_positions_m
             if roi_preview is not None:
-                payload["bridge_calibration"]["roi_preview"] = roi_preview
+                bridge["roi_preview"] = roi_preview
             if movement_direction is not None:
-                payload["bridge_calibration"]["movement_direction"] = movement_direction
+                bridge["movement_direction"] = movement_direction
             if landmark_trust is not None:
-                payload["bridge_calibration"]["landmark_trust"] = landmark_trust
+                bridge["landmark_trust"] = landmark_trust
+            if reference_marker_id is not None:
+                bridge["reference_marker_id"] = int(reference_marker_id)
+            if zero_marker_offset_m is not None:
+                bridge["zero_marker_offset_m"] = float(zero_marker_offset_m)
             self._mark_updated(payload)
             self._write(payload)
 

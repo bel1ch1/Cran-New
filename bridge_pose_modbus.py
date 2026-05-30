@@ -31,8 +31,14 @@ from app.services.pose_modbus_common import (
     run_timed_pose_loop,
     start_modbus_server,
     write_bridge_pose_to_modbus_store,
+    write_runtime_heartbeat,
 )
 from app.services.pose_runtime_common import PoseCameraSession, detect_markers, install_stop_handlers
+from app.services.spatial_marker_map import (
+    RUNTIME_MATCH_TOLERANCE_M,
+    SpatialMarkerMap,
+    parse_bridge_axis_sign,
+)
 
 
 @dataclass
@@ -47,7 +53,10 @@ class Roi:
 class BridgeRuntimeConfig:
     marker_size_mm: int
     movement_direction: str
-    marker_positions_m: dict[int, float]
+    spatial_map: SpatialMarkerMap
+    axis_sign: int
+    reference_marker_id: int
+    zero_offset_m: float
     roi: Roi
     camera_id: int
     camera_matrix: np.ndarray
@@ -69,15 +78,23 @@ def load_bridge_runtime_config(config_path: Path) -> BridgeRuntimeConfig:
 
     marker_size_mm = int(bridge.get("marker_size_mm") or 35)
     movement_direction = str(bridge.get("movement_direction") or "unknown")
+    axis_sign = parse_bridge_axis_sign(movement_direction)
+
     marker_positions_raw = bridge.get("marker_positions_m", {})
-    marker_positions_m: dict[int, float] = {}
+    marker_positions_m: dict[str, float] = {}
     for key, value in marker_positions_raw.items():
         try:
-            marker_positions_m[int(key)] = float(value)
+            marker_positions_m[str(key)] = float(value)
         except (TypeError, ValueError):
             continue
-    if not marker_positions_m:
-        raise ValueError("marker_positions_m is empty in calibration config")
+
+    reference_marker_id = int(bridge.get("reference_marker_id", 0))
+    zero_offset_m = float(bridge.get("zero_marker_offset_m", 0.0))
+    spatial_map = SpatialMarkerMap.from_marker_positions_m(
+        marker_positions_m,
+        reference_marker_id=reference_marker_id,
+        zero_offset=zero_offset_m,
+    )
 
     roi_raw = bridge.get("roi", {})
     roi = Roi(
@@ -94,7 +111,10 @@ def load_bridge_runtime_config(config_path: Path) -> BridgeRuntimeConfig:
     return BridgeRuntimeConfig(
         marker_size_mm=marker_size_mm,
         movement_direction=movement_direction,
-        marker_positions_m=marker_positions_m,
+        spatial_map=spatial_map,
+        axis_sign=axis_sign,
+        reference_marker_id=reference_marker_id,
+        zero_offset_m=zero_offset_m,
         roi=roi,
         camera_id=camera_id,
         camera_matrix=camera_matrix,
@@ -120,13 +140,10 @@ def compute_camera_pose(frame_bgr: np.ndarray, cfg: BridgeRuntimeConfig) -> Pose
 
     frame_center_x_px = frame_w / 2.0
     marker_length_m = max(0.001, float(cfg.marker_size_mm) / 1000.0)
-    best: PoseResult | None = None
+    detections: list[dict[str, float | int]] = []
 
     for idx, marker_id_raw in enumerate(ids.flatten().tolist()):
         marker_id = int(marker_id_raw)
-        if marker_id not in cfg.marker_positions_m:
-            continue
-
         roi_corner = corners[idx]
         global_corner = roi_corner.copy()
         global_corner[:, :, 0] += float(roi_x)
@@ -146,28 +163,68 @@ def compute_camera_pose(frame_bgr: np.ndarray, cfg: BridgeRuntimeConfig) -> Pose
         marker_center_x = float(np.mean(global_corner[0][:, 0]))
         marker_offset_px = marker_center_x - frame_center_x_px
         rel_x_m = float((marker_offset_px / float(cfg.camera_matrix[0, 0])) * z_m)
-
-        marker_x_m = cfg.marker_positions_m[marker_id]
-        if cfg.movement_direction == "right_to_left":
-            camera_x_m = marker_x_m + rel_x_m
-        else:
-            camera_x_m = marker_x_m - rel_x_m
-
         distance_m = float(math.sqrt(float(np.dot(tvec_xyz, tvec_xyz))))
-        candidate = PoseResult(
-            camera_x_m=max(0.0, camera_x_m),
-            distance_m=max(0.0, distance_m),
-            marker_id=marker_id,
-            marker_offset_px=marker_offset_px,
-            valid=True,
+        detections.append(
+            {
+                "marker_id": marker_id,
+                "rel_x_m": rel_x_m,
+                "distance_m": distance_m,
+                "marker_offset_px": marker_offset_px,
+            }
         )
 
-        if best is None or abs(candidate.marker_offset_px) < abs(best.marker_offset_px):
-            best = candidate
-
-    if best is None:
+    if not detections:
         return PoseResult(0.0, 0.0, -1, 0.0, False)
-    return best
+
+    camera_x_estimates: list[float] = []
+    for det in detections:
+        rel_x_m = float(det["rel_x_m"])
+        marker_id = int(det["marker_id"])
+        if marker_id == cfg.reference_marker_id:
+            camera_x_estimates.append(cfg.zero_offset_m - (cfg.axis_sign * rel_x_m))
+
+    hint_x = float(np.median(camera_x_estimates)) if camera_x_estimates else None
+
+    for det in detections:
+        rel_x_m = float(det["rel_x_m"])
+        marker_id = int(det["marker_id"])
+        if marker_id == cfg.reference_marker_id:
+            continue
+        if hint_x is not None:
+            landmark_x = cfg.spatial_map.match_landmark_for_detection(
+                rel_x_m,
+                hint_x,
+                cfg.axis_sign,
+                tolerance=RUNTIME_MATCH_TOLERANCE_M,
+            )
+            if landmark_x is not None:
+                camera_x_estimates.append(landmark_x - (cfg.axis_sign * rel_x_m))
+                continue
+        for landmark_x in cfg.spatial_map.trusted_x_positions():
+            candidate = landmark_x - (cfg.axis_sign * rel_x_m)
+            matched = cfg.spatial_map.match_landmark_for_detection(
+                rel_x_m,
+                candidate,
+                cfg.axis_sign,
+                tolerance=RUNTIME_MATCH_TOLERANCE_M,
+            )
+            if matched is not None:
+                camera_x_estimates.append(candidate)
+                break
+
+    if not camera_x_estimates:
+        return PoseResult(0.0, 0.0, -1, 0.0, False)
+
+    center_det = min(detections, key=lambda item: abs(float(item["marker_offset_px"])))
+    camera_x_m = max(0.0, float(np.median(camera_x_estimates)))
+
+    return PoseResult(
+        camera_x_m=camera_x_m,
+        distance_m=max(0.0, float(center_det["distance_m"])),
+        marker_id=int(center_det["marker_id"]),
+        marker_offset_px=float(center_det["marker_offset_px"]),
+        valid=True,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -198,6 +255,7 @@ def main() -> int:
     )
 
     min_register_count = args.modbus_base_register + 6
+    child_heartbeat = Path("data/runtime/bridge_pose_modbus.heartbeat")
     context, server_thread = start_modbus_server(
         host=args.modbus_host,
         port=args.modbus_port,
@@ -246,6 +304,7 @@ def main() -> int:
                 print("[POSE] no known marker in ROI")
         else:
             print(f"[WARN] Camera frame read/decode failed (device={camera.camera_device})")
+        write_runtime_heartbeat(child_heartbeat)
 
     try:
         run_timed_pose_loop(stop=stop, period_s=pose_period_seconds(args.fps), body=_loop_body)

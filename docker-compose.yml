@@ -17,6 +17,14 @@ services:
       CRAN_MODBUS_BRIDGE_BASE_REGISTER: ${CRAN_MODBUS_BRIDGE_BASE_REGISTER:-100}
       CRAN_MODBUS_HOOK_BASE_REGISTER: ${CRAN_MODBUS_HOOK_BASE_REGISTER:-200}
       CRAN_SUPERVISOR_LOCK_FILE: ${CRAN_SUPERVISOR_LOCK_FILE:-/app/data/runtime/calibration.lock}
+      CRAN_INFLUX_URL: ${CRAN_INFLUX_URL:-http://influxdb:8086}
+      CRAN_INFLUX_ORG: ${CRAN_INFLUX_ORG:-cran}
+      CRAN_INFLUX_BUCKET: ${CRAN_INFLUX_BUCKET:-cran}
+      CRAN_INFLUX_TOKEN: ${CRAN_INFLUX_TOKEN:-cran-influx-token-change-me}
+      CRAN_INFLUX_MEASUREMENT: ${CRAN_INFLUX_MEASUREMENT:-crane_pose}
+      CRAN_INFLUX_FIELD_BRIDGE_X: ${CRAN_INFLUX_FIELD_BRIDGE_X:-bridge_x_m}
+      CRAN_INFLUX_FIELD_BRIDGE_Y: ${CRAN_INFLUX_FIELD_BRIDGE_Y:-bridge_y_m}
+      CRAN_INFLUX_FIELD_HOOK_DISTANCE: ${CRAN_INFLUX_FIELD_HOOK_DISTANCE:-hook_distance_m}
       LIBCAMERA_LOG_LEVELS: ${LIBCAMERA_LOG_LEVELS:-*:WARN}
       PYTHONPATH: /usr/lib/python3/dist-packages
     volumes:
@@ -28,7 +36,9 @@ services:
       - video
     depends_on:
       bridge-supervisor:
-        condition: service_started
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
     restart: always
     healthcheck:
       test:
@@ -84,11 +94,11 @@ services:
       - video
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "test -s /app/data/runtime/bridge_pose_supervisor.pid"]
+      test: ["CMD-SHELL", "scripts/healthcheck_pose_supervisor.sh bridge"]
       interval: 15s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 8
+      start_period: 60s
     ports:
       - "${CRAN_MODBUS_PUBLISHED_PORT:-5020}:${CRAN_MODBUS_PORT:-5020}"
     networks:
@@ -101,7 +111,7 @@ services:
     container_name: cran_hook_supervisor
     depends_on:
       bridge-supervisor:
-        condition: service_started
+        condition: service_healthy
     command:
       [
         "python",
@@ -134,14 +144,79 @@ services:
       - video
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "test -s /app/data/runtime/hook_pose_supervisor.pid"]
+      test: ["CMD-SHELL", "scripts/healthcheck_pose_supervisor.sh hook"]
       interval: 15s
       timeout: 5s
-      retries: 5
+      retries: 8
+      start_period: 90s
+    networks:
+      - cran-net
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: cran_influxdb
+    restart: always
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${CRAN_INFLUX_USERNAME:-cran}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${CRAN_INFLUX_PASSWORD:-cran-influx-secret}
+      DOCKER_INFLUXDB_INIT_ORG: ${CRAN_INFLUX_ORG:-cran}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${CRAN_INFLUX_BUCKET:-cran}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${CRAN_INFLUX_TOKEN:-cran-influx-token-change-me}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
       start_period: 20s
+    ports:
+      - "${CRAN_INFLUX_PUBLISHED_PORT:-8086}:8086"
+    networks:
+      - cran-net
+
+  pose-influx-writer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cran_pose_influx_writer
+    command: ["python", "run_pose_influx_writer.py"]
+    environment:
+      CRAN_MODBUS_HOST: ${CRAN_MODBUS_HOST:-bridge-supervisor}
+      CRAN_MODBUS_PORT: ${CRAN_MODBUS_PORT:-5020}
+      CRAN_MODBUS_UNIT_ID: ${CRAN_MODBUS_UNIT_ID:-1}
+      CRAN_MODBUS_BRIDGE_BASE_REGISTER: ${CRAN_MODBUS_BRIDGE_BASE_REGISTER:-100}
+      CRAN_MODBUS_HOOK_BASE_REGISTER: ${CRAN_MODBUS_HOOK_BASE_REGISTER:-200}
+      CRAN_INFLUX_URL: ${CRAN_INFLUX_URL:-http://influxdb:8086}
+      CRAN_INFLUX_ORG: ${CRAN_INFLUX_ORG:-cran}
+      CRAN_INFLUX_BUCKET: ${CRAN_INFLUX_BUCKET:-cran}
+      CRAN_INFLUX_TOKEN: ${CRAN_INFLUX_TOKEN:-cran-influx-token-change-me}
+      CRAN_INFLUX_MEASUREMENT: ${CRAN_INFLUX_MEASUREMENT:-crane_pose}
+      CRAN_INFLUX_FIELD_BRIDGE_X: ${CRAN_INFLUX_FIELD_BRIDGE_X:-bridge_x_m}
+      CRAN_INFLUX_FIELD_BRIDGE_Y: ${CRAN_INFLUX_FIELD_BRIDGE_Y:-bridge_y_m}
+      CRAN_INFLUX_FIELD_HOOK_DISTANCE: ${CRAN_INFLUX_FIELD_HOOK_DISTANCE:-hook_distance_m}
+      CRAN_INFLUX_WRITE_INTERVAL: ${CRAN_INFLUX_WRITE_INTERVAL:-1.0}
+      CRAN_INFLUX_WRITER_HEARTBEAT_FILE: /app/data/runtime/pose_influx_writer.heartbeat
+      PYTHONPATH: /usr/lib/python3/dist-packages
+    depends_on:
+      bridge-supervisor:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "scripts/healthcheck_influx_writer.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     networks:
       - cran-net
 
 networks:
   cran-net:
     driver: bridge
+
+volumes:
+  influxdb-data:

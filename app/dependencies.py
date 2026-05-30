@@ -69,6 +69,7 @@ def persist_bridge_runtime_to_store() -> bool:
     if not state:
         return False
 
+    session = runtime.get_session_settings()
     store = get_config_store()
     store.update_bridge_runtime_result(
         crane_x_m=float(state.get("crane_x_m") or 0.0),
@@ -78,6 +79,9 @@ def persist_bridge_runtime_to_store() -> bool:
         marker_positions_m=state.get("marker_positions_m"),
         roi_preview=state.get("roi_preview"),
         movement_direction=state.get("movement_direction"),
+        landmark_trust=state.get("landmark_trust"),
+        reference_marker_id=int(session["reference_marker_id"]),
+        zero_marker_offset_m=float(session["zero_marker_offset_m"]),
     )
     return True
 
@@ -85,22 +89,23 @@ def persist_bridge_runtime_to_store() -> bool:
 def merge_bridge_calibration_view() -> dict:
     """Merge persisted config with live runtime snapshot for UI display."""
     stored = get_config_store().get_calibration_data()
-    runtime_state = get_bridge_runtime().last_state or {}
+    runtime = get_bridge_runtime()
+    runtime_state = runtime.last_state or {}
     if not runtime_state:
         return stored
 
     merged = dict(stored)
     runtime_markers = runtime_state.get("marker_positions_m") or {}
     stored_markers = stored.get("marker_positions_m") or {}
-    if len(runtime_markers) >= len(stored_markers):
-        merged["marker_positions_m"] = runtime_markers
-    else:
-        merged["marker_positions_m"] = stored_markers
+    use_runtime_map = runtime.is_calibration_running or len(runtime_markers) >= len(stored_markers)
+    merged["marker_positions_m"] = runtime_markers if use_runtime_map else stored_markers
 
     if runtime_state.get("roi_preview"):
         merged["roi_preview"] = runtime_state.get("roi_preview")
     if runtime_state.get("movement_direction"):
         merged["movement_direction"] = runtime_state.get("movement_direction")
+    if runtime_state.get("landmark_trust"):
+        merged["landmark_trust"] = runtime_state.get("landmark_trust")
 
     merged["result"] = dict(stored.get("result", {}))
     if runtime_state.get("crane_x_m") is not None:

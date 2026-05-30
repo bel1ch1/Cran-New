@@ -82,7 +82,7 @@ def render_frame_overlay(frame, roi_preview: dict | None, corners, ids) -> bytes
     if not CV2_AVAILABLE or frame is None:
         return b""
     try:
-        annotated = frame
+        annotated = frame.copy()
         if ids is not None and len(ids) > 0 and corners is not None:
             cv2.aruco.drawDetectedMarkers(annotated, corners, ids)
 
@@ -107,6 +107,18 @@ def render_frame_overlay(frame, roi_preview: dict | None, corners, ids) -> bytes
         return _encode_jpeg_frame(annotated)
     except Exception:
         return b""
+
+
+def target_marker_overlay(corners, ids, target_index: int | None):
+    """Return corners/ids arrays containing only the selected marker for preview."""
+    if not CV2_AVAILABLE or np is None:
+        return None, None
+    if corners is None or ids is None or target_index is None:
+        return None, None
+    if target_index < 0 or target_index >= len(corners):
+        return None, None
+    marker_id = int(ids.flatten()[target_index])
+    return [corners[target_index]], np.array([[marker_id]], dtype=ids.dtype)
 
 
 @dataclass
@@ -170,8 +182,9 @@ class MockBridgeCalibrationAlgorithm:
     """
 
     def __init__(self) -> None:
+        self._reference_marker_id: int = 0
         self._x_pose_m = 0.0
-        self._known_positions_m: dict[int, float] = {1: 0.0}
+        self._known_positions_m: dict[int, float] = {0: 0.0}
         self._candidate_abs_x: dict[int, list[float]] = defaultdict(list)
         self._pair_residuals: list[float] = []
         self._reference_distance_m: float | None = None
@@ -185,12 +198,36 @@ class MockBridgeCalibrationAlgorithm:
         self._axis_orientation_sign: int = 1
         self.last_overlay_jpeg: bytes = b""
 
+    def reset_session(
+        self,
+        *,
+        reference_marker_id: int = 0,
+        zero_marker_offset_m: float = 0.0,
+    ) -> None:
+        """Clear in-memory calibration progress for a fresh session."""
+        self._reference_marker_id = int(reference_marker_id)
+        self._x_pose_m = 0.0
+        self._known_positions_m = {self._reference_marker_id: float(zero_marker_offset_m)}
+        self._candidate_abs_x = defaultdict(list)
+        self._pair_residuals = []
+        self._reference_distance_m = None
+        self._roi_raw_bounds = None
+        self._roi_frame_size = None
+        self._last_center_marker_id = None
+        self._direction_score = 0
+        self._movement_direction = "unknown"
+        self._zero_marker_offset_m = float(zero_marker_offset_m)
+        self._orientation_votes = deque(maxlen=40)
+        self._axis_orientation_sign = 1
+        self.last_overlay_jpeg = b""
+
     def _apply_zero_marker_offset(self, zero_marker_offset_m: float) -> None:
         target = float(zero_marker_offset_m)
-        current = self._known_positions_m.get(0, self._zero_marker_offset_m)
+        anchor_id = self._reference_marker_id
+        current = self._known_positions_m.get(anchor_id, self._zero_marker_offset_m)
         delta = target - current
         if abs(delta) <= 1e-9:
-            self._known_positions_m[0] = target
+            self._known_positions_m[anchor_id] = target
             self._zero_marker_offset_m = target
             return
         for marker_id in list(self._known_positions_m.keys()):
@@ -372,8 +409,8 @@ class MockBridgeCalibrationAlgorithm:
         known_obs = [obs for obs in observations if obs["id"] in self._known_positions_m]
         obs_by_id = {obs["id"]: obs for obs in observations}
 
-        # Capture reference distance from anchor marker id=0.
-        anchor_obs = obs_by_id.get(0)
+        # Capture reference distance from configured anchor marker.
+        anchor_obs = obs_by_id.get(self._reference_marker_id)
         if anchor_obs is not None:
             self._reference_distance_m = anchor_obs["distance_m"]
 
@@ -573,6 +610,24 @@ class MockHookCalibrationAlgorithm:
     3) Produces correction offsets for X/Y deviation.
     """
 
+    def __init__(self) -> None:
+        self.last_overlay_jpeg: bytes = b""
+
+    def _with_overlay(
+        self,
+        frame,
+        corners,
+        ids,
+        target_index: int | None,
+        result: HookCalibrationResult,
+    ) -> HookCalibrationResult:
+        if frame is not None:
+            overlay_corners, overlay_ids = target_marker_overlay(corners, ids, target_index)
+            self.last_overlay_jpeg = render_frame_overlay(frame, None, overlay_corners, overlay_ids)
+        else:
+            self.last_overlay_jpeg = b""
+        return result
+
     def process_frame(
         self,
         frame_bytes: bytes,
@@ -580,6 +635,7 @@ class MockHookCalibrationAlgorithm:
         target_marker_id: int | None,
     ) -> HookCalibrationResult:
         if not CV2_AVAILABLE or not frame_bytes:
+            self.last_overlay_jpeg = b""
             return HookCalibrationResult(
                 deviation_x=0.0,
                 deviation_y=0.0,
@@ -596,6 +652,7 @@ class MockHookCalibrationAlgorithm:
         except Exception:
             frame = None
         if frame is None:
+            self.last_overlay_jpeg = b""
             return HookCalibrationResult(
                 deviation_x=0.0,
                 deviation_y=0.0,
@@ -614,14 +671,20 @@ class MockHookCalibrationAlgorithm:
             parameters=ARUCO_PARAM,
         )
         if ids is None or len(ids) == 0:
-            return HookCalibrationResult(
-                deviation_x=0.0,
-                deviation_y=0.0,
-                distance=0.0,
-                angle_deg=0.0,
-                marker_id=None,
-                resolution=f"{width}x{height}",
-                calib_message="Маркер крюка не найден",
+            return self._with_overlay(
+                frame,
+                None,
+                None,
+                None,
+                HookCalibrationResult(
+                    deviation_x=0.0,
+                    deviation_y=0.0,
+                    distance=0.0,
+                    angle_deg=0.0,
+                    marker_id=None,
+                    resolution=f"{width}x{height}",
+                    calib_message="Маркер крюка не найден",
+                ),
             )
 
         ids_list = ids.flatten().tolist()
@@ -631,14 +694,20 @@ class MockHookCalibrationAlgorithm:
             target_index = ids_list.index(target_marker_id)
             actual_marker_id = target_marker_id
         elif target_marker_id is not None and target_marker_id not in ids_list:
-            return HookCalibrationResult(
-                deviation_x=0.0,
-                deviation_y=0.0,
-                distance=0.0,
-                angle_deg=0.0,
-                marker_id=None,
-                resolution=f"{width}x{height}",
-                calib_message=f"Целевой маркер id={target_marker_id} не найден",
+            return self._with_overlay(
+                frame,
+                corners,
+                ids,
+                None,
+                HookCalibrationResult(
+                    deviation_x=0.0,
+                    deviation_y=0.0,
+                    distance=0.0,
+                    angle_deg=0.0,
+                    marker_id=None,
+                    resolution=f"{width}x{height}",
+                    calib_message=f"Целевой маркер id={target_marker_id} не найден",
+                ),
             )
 
         corner = corners[target_index]
@@ -651,14 +720,20 @@ class MockHookCalibrationAlgorithm:
                 distCoeffs=DIST_COEFFS_1,
             )
         except Exception:
-            return HookCalibrationResult(
-                deviation_x=0.0,
-                deviation_y=0.0,
-                distance=0.0,
-                angle_deg=0.0,
-                marker_id=actual_marker_id,
-                resolution=f"{width}x{height}",
-                calib_message="Не удалось оценить позу маркера",
+            return self._with_overlay(
+                frame,
+                corners,
+                ids,
+                target_index,
+                HookCalibrationResult(
+                    deviation_x=0.0,
+                    deviation_y=0.0,
+                    distance=0.0,
+                    angle_deg=0.0,
+                    marker_id=actual_marker_id,
+                    resolution=f"{width}x{height}",
+                    calib_message="Не удалось оценить позу маркера",
+                ),
             )
 
         tvec_xyz = tvec[0][0]
@@ -676,12 +751,18 @@ class MockHookCalibrationAlgorithm:
         deviation_x = marker_center_x_px - (width / 2.0)
         deviation_y = marker_center_y_px - (height / 2.0)
 
-        return HookCalibrationResult(
-            deviation_x=round(deviation_x, 2),
-            deviation_y=round(deviation_y, 2),
-            distance=round(max(0.0, corrected_distance_m), 3),
-            angle_deg=round(angle_deg, 2),
-            marker_id=int(actual_marker_id),
-            resolution=f"{width}x{height}",
-            calib_message=f"Маркер id={actual_marker_id} обнаружен",
+        return self._with_overlay(
+            frame,
+            corners,
+            ids,
+            target_index,
+            HookCalibrationResult(
+                deviation_x=round(deviation_x, 2),
+                deviation_y=round(deviation_y, 2),
+                distance=round(max(0.0, corrected_distance_m), 3),
+                angle_deg=round(angle_deg, 2),
+                marker_id=int(actual_marker_id),
+                resolution=f"{width}x{height}",
+                calib_message=f"Маркер id={actual_marker_id} обнаружен",
+            ),
         )

@@ -55,19 +55,26 @@
         }
 
         .main-content {
-            display: flex;
             padding: 20px;
-            gap: 20px;
-            min-height: 600px;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 350px;
+            grid-template-rows: auto 1fr auto;
+            gap: 16px 20px;
+            align-items: start;
         }
 
         .back-button {
+            grid-column: 1 / -1;
             display: inline-flex;
             align-items: center;
             color: #aaa;
             text-decoration: none;
-            margin-bottom: 20px;
             font-size: 14px;
+            line-height: 1.4;
+            min-height: 20px;
             transition: color 0.3s;
         }
 
@@ -75,39 +82,34 @@
             color: #e0e0e0;
         }
 
-        .video-panel {
-            flex: 1;
+        .video-column {
+            grid-column: 1;
+            grid-row: 2;
             display: flex;
             flex-direction: column;
+            gap: 12px;
+            min-width: 0;
         }
 
-        .video-container {
-            flex: 1;
-            background: #1a1a1a;
-            border: 1px solid #444;
-            border-radius: 6px;
-            overflow: hidden;
-            position: relative;
+        .info-panel {
+            grid-column: 2;
+            grid-row: 2 / 4;
+            width: 350px;
             display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .video-placeholder {
-            color: #666;
-            font-size: 18px;
-            text-align: center;
-            padding: 40px;
+            flex-direction: column;
+            gap: 16px;
         }
 
         .video-controls {
-            display: flex;
+            grid-column: 1;
+            grid-row: 3;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
-            margin-top: 15px;
         }
 
         .control-btn {
-            flex: 1;
+            width: 100%;
             background: linear-gradient(to bottom, #3d3d3d, #2d2d2d);
             color: #e0e0e0;
             border: 1px solid #555;
@@ -128,11 +130,28 @@
             cursor: not-allowed;
         }
 
-        .info-panel {
-            flex: 0 0 350px;
+        .video-container {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            min-height: 320px;
+            max-height: min(70vh, 720px);
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-placeholder {
+            position: absolute;
+            inset: 0;
             display: flex;
-            flex-direction: column;
-            gap: 20px;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 18px;
+            text-align: center;
+            padding: 40px;
         }
 
         .instruction-box {
@@ -159,7 +178,6 @@
             padding: 20px;
             border-radius: 6px;
             border: 1px solid #444;
-            flex: 1;
             display: flex;
             flex-direction: column;
         }
@@ -190,12 +208,14 @@
             min-height: 38px;
             display: flex;
             align-items: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .status-indicator {
             display: flex;
             align-items: center;
-            margin-top: auto;
             padding: 10px;
             background: #2a2a2a;
             border-radius: 4px;
@@ -236,12 +256,30 @@
         }
 
         @media (max-width: 900px) {
-            .main-content {
-                flex-direction: column;
+            .content-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto;
+            }
+
+            .back-button {
+                grid-column: 1;
+                grid-row: 1;
+            }
+
+            .video-column {
+                grid-column: 1;
+                grid-row: 2;
+            }
+
+            .video-controls {
+                grid-column: 1;
+                grid-row: 3;
             }
 
             .info-panel {
-                flex: 0 0 auto;
+                grid-column: 1;
+                grid-row: 4;
+                width: 100%;
             }
         }
 
@@ -288,9 +326,13 @@
         }
 
         #frame {
-            max-width: 100%;
-            max-height: 100%;
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             display: none;
+            background: #1a1a1a;
         }
     </style>
 </head>
@@ -302,28 +344,29 @@
         </header>
 
         <div class="main-content">
-            <div class="video-panel">
+            <div class="content-grid">
                 <a href="/z-settings" class="back-button">← Назад к настройкам Z</a>
 
-                <div class="video-container" id="videoContainer">
-                    <div class="crosshair">
-                        <div class="crosshair-line horizontal"></div>
-                        <div class="crosshair-line vertical"></div>
-                        <div class="center-circle"></div>
+                <div class="video-column">
+                    <div class="video-container" id="videoContainer">
+                        <div class="crosshair">
+                            <div class="crosshair-line horizontal"></div>
+                            <div class="crosshair-line vertical"></div>
+                            <div class="center-circle"></div>
+                        </div>
+                        <div class="video-placeholder" id="videoPlaceholder">
+                            Ожидание видеопотока...
+                        </div>
+                        <img id="frame" alt="Video Stream">
                     </div>
-                    <div class="video-placeholder" id="videoPlaceholder">
-                        Ожидание видеопотока...
-                    </div>
-                    <img id="frame" alt="Video Stream">
                 </div>
 
                 <div class="video-controls">
                     <button class="control-btn" id="startStream">Запустить поток</button>
                     <button class="control-btn" id="stopStream" disabled>Остановить поток</button>
                 </div>
-            </div>
 
-            <div class="info-panel">
+                <div class="info-panel">
                 <div class="instruction-box">
                     <h3>Инструкция по калибровке</h3>
                     <p>Следите за положением объекта, он должен находиться примерно по центру. В случае отклонения, необходимо установить камеру более корректно. Убедитесь, что объект находится в фокусе и хорошо освещен.</p>
@@ -358,6 +401,7 @@
                     <div class="status-text" id="systemStatusText">Система готова к работе</div>
                 </div>
             </div>
+            </div>
         </div>
 
         <footer>
@@ -383,6 +427,8 @@
 
         let ws = null;
         let streamActive = false;
+        let streamReady = false;
+        let lastStatusMessage = '';
 
         // Функция обновления статуса системы
         function updateSystemStatus(status, isError = false, isConnected = false) {
@@ -399,6 +445,11 @@
 
         // Функция обновления данных калибровки
         function updateCalibrationData(state) {
+            if (state.camera_error) {
+                updateSystemStatus(`Ошибка камеры: ${state.camera_error}`, true, true);
+                setCalibrationStatus('Камера недоступна');
+                return;
+            }
             const markerVisible = state.marker_id !== undefined && state.marker_id !== null;
             if (markerVisible && state.deviation_x !== undefined && state.deviation_y !== undefined) {
                 // Invert Y for user-facing coordinates.
@@ -411,10 +462,18 @@
                 angleData.textContent = `${state.angle_deg} °`;
             }
             if (markerVisible) {
-                calibrationStatus.textContent = `Отслеживается маркер id=${state.marker_id}`;
+                setCalibrationStatus(`Отслеживается маркер id=${state.marker_id}`);
             } else {
-                calibrationStatus.textContent = 'Маркер потерян, ожидание восстановления';
+                setCalibrationStatus('Маркер потерян, ожидание восстановления');
             }
+        }
+
+        function setCalibrationStatus(message) {
+            if (message === lastStatusMessage) {
+                return;
+            }
+            lastStatusMessage = message;
+            calibrationStatus.textContent = message;
         }
 
         // Функция запуска видеопотока через WebSocket
@@ -441,15 +500,13 @@
                 ws.onopen = function() {
                     console.log('WebSocket соединение установлено');
                     streamActive = true;
-
-                    videoPlaceholder.style.display = 'none';
-                    frame.style.display = 'block';
+                    streamReady = false;
 
                     startStreamBtn.disabled = true;
                     stopStreamBtn.disabled = false;
 
-                    updateSystemStatus('Видеопоток активен', false, true);
-                    calibrationStatus.textContent = 'Поток активен, ожидание маркера';
+                    updateSystemStatus('Инициализация камеры...', false, true);
+                    setCalibrationStatus('Подключение к камере...');
                 };
 
                 ws.onmessage = function(event) {
@@ -459,6 +516,13 @@
                         }
                         lastFrameBlobUrl = URL.createObjectURL(event.data);
                         frame.src = lastFrameBlobUrl;
+                        if (!streamReady) {
+                            streamReady = true;
+                            videoPlaceholder.style.display = 'none';
+                            frame.style.display = 'block';
+                            updateSystemStatus('Видеопоток активен', false, true);
+                            setCalibrationStatus('Поток активен, ожидание маркера');
+                        }
                         return;
                     }
                     try {
@@ -466,7 +530,7 @@
                         if (data.type === "calibration_state") {
                             updateCalibrationData(data.data);
                         } else if (data.type === "calibration_status") {
-                            calibrationStatus.textContent = data.message;
+                            setCalibrationStatus(data.message);
                         }
                     } catch (e) {
                         console.error('Ошибка парсинга JSON:', e);
@@ -496,6 +560,8 @@
         // Функция остановки видеопотока
         function stopVideoStream() {
             streamActive = false;
+            streamReady = false;
+            lastStatusMessage = '';
 
             // Закрытие WebSocket соединения
             if (ws) {
@@ -515,7 +581,7 @@
             stopStreamBtn.disabled = true;
 
             updateSystemStatus('Поток остановлен');
-            calibrationStatus.textContent = 'Ожидание запуска';
+            setCalibrationStatus('Ожидание запуска');
 
             // Сброс данных
             deviationData.textContent = '(--, --) px';

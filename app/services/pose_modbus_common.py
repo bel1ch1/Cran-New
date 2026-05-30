@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -128,8 +130,33 @@ def write_bridge_pose_to_modbus_store(
     context[0].setValues(3, base_register, values)
 
 
+def write_runtime_heartbeat(path: Path) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def pose_period_seconds(fps: float) -> float:
     return 1.0 / max(0.5, float(fps))
+
+
+def wait_for_modbus_tcp(
+    host: str,
+    port: int,
+    *,
+    timeout_s: float = 60.0,
+    poll_interval_s: float = 0.5,
+) -> bool:
+    deadline = time.time() + max(0.5, float(timeout_s))
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, int(port)), timeout=1.0):
+                return True
+        except OSError:
+            time.sleep(max(0.1, float(poll_interval_s)))
+    return False
 
 
 def run_timed_pose_loop(

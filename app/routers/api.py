@@ -32,6 +32,15 @@ def _store() -> ConfigStore:
     return get_config_store()
 
 
+def _state_with_camera_error(state: dict, runtime: BridgeCalibrationRuntime | HookCalibrationRuntime) -> dict:
+    camera_error = getattr(runtime.camera_provider, "last_error", None)
+    if not camera_error:
+        return state
+    enriched = dict(state)
+    enriched["camera_error"] = camera_error
+    return enriched
+
+
 async def _run_calibration_websocket(
     websocket: WebSocket,
     runtime: BridgeCalibrationRuntime | HookCalibrationRuntime,
@@ -40,6 +49,7 @@ async def _run_calibration_websocket(
     build_state: Callable[[], Awaitable[dict]],
 ) -> None:
     await websocket.accept()
+    await runtime.prepare_stream()
     try:
         while True:
             try:
@@ -54,18 +64,15 @@ async def _run_calibration_websocket(
             if runtime.last_frame_bytes:
                 await websocket.send_bytes(runtime.last_frame_bytes)
 
-            camera_error = getattr(runtime.camera_provider, "last_error", None)
-            if camera_error:
-                state = dict(state)
-                state["camera_error"] = camera_error
-
-            await websocket.send_json({"type": state_type, "data": state})
+            await websocket.send_json(
+                {"type": state_type, "data": _state_with_camera_error(state, runtime)}
+            )
     except WebSocketDisconnect:
         return
     finally:
         if isinstance(runtime, BridgeCalibrationRuntime):
             persist_bridge_runtime_to_store()
-        runtime.detach_stream()
+        await runtime.finalize_stream()
 
 
 @router.post("/z-marker-settings")
@@ -87,6 +94,7 @@ async def xy_marker_settings(payload: XYMarkerSettings, request: Request):
     _store().update_bridge_settings(
         marker_size=payload.marker_size,
         zero_marker_offset_m=payload.zero_marker_offset_m,
+        reference_marker_id=payload.reference_marker_id,
     )
     return {"message": "Настройки калибровки моста сохранены"}
 
@@ -147,7 +155,13 @@ async def save_calibration(request: Request):
 @router.post("/calibration/bridge/start")
 async def start_bridge_calibration(request: Request):
     _require_auth(request)
-    get_bridge_runtime().is_calibration_running = True
+    bridge_settings = _store().get_bridge_settings()
+    runtime = get_bridge_runtime()
+    runtime.configure_session(
+        reference_marker_id=int(bridge_settings.get("reference_marker_id") or 0),
+        zero_marker_offset_m=float(bridge_settings.get("zero_marker_offset_m") or 0.0),
+    )
+    runtime.start_calibration_session()
     return {"message": "Калибровка моста запущена"}
 
 
@@ -161,7 +175,7 @@ async def stop_bridge_calibration(request: Request):
 @router.post("/calibration/hook/start")
 async def start_hook_calibration(request: Request):
     _require_auth(request)
-    get_hook_runtime().is_calibration_running = True
+    get_hook_runtime().start_calibration_session()
     return {"message": "Калибровка крюка запущена"}
 
 
@@ -228,6 +242,10 @@ async def bridge_camera_stream(websocket: WebSocket):
         bridge_settings = _store().get_bridge_settings()
         marker_size_mm = bridge_settings.get("marker_size_mm") or 100
         zero_marker_offset_m = float(bridge_settings.get("zero_marker_offset_m") or 0.0)
+        runtime.configure_session(
+            reference_marker_id=int(bridge_settings.get("reference_marker_id") or 0),
+            zero_marker_offset_m=zero_marker_offset_m,
+        )
         return await runtime.tick(
             marker_size_mm=marker_size_mm,
             zero_marker_offset_m=zero_marker_offset_m,

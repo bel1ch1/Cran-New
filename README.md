@@ -341,7 +341,7 @@ WebSocket: `ws://<host>/ws/calibration/bridge`
 - вычисляет:
   - `X` - положение камеры по пути (метры),
   - `Y` - дистанцию до маркера (метры);
-- учитывает `movement_direction` (`left_to_right` / `right_to_left`);
+- учитывает `movement_direction` и ось (`axis=normal` / `axis=reversed`), сопоставляя детекции с `marker_positions_m` по координате X;
 - поднимает свой Modbus TCP сервер и публикует данные в holding-регистры.
 
 Запуск:
